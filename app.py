@@ -45,19 +45,15 @@ div[data-testid="stMetricValue"]{font-size:1.4rem!important;font-weight:700!impo
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def check_docking_libs():
-    # Only 3 packages needed — no openbabel required
-    libs = {'vina': False, 'rdkit': False, 'meeko': False}
-    try:
-        from vina import Vina; libs['vina'] = True
-    except Exception: pass
+    # Only rdkit needed — Vina runs as a downloaded binary (no pip package)
+    libs = {'vina': False, 'rdkit': False}
     try:
         from rdkit import Chem; libs['rdkit'] = True
     except Exception: pass
-    try:
-        import meeko; libs['meeko'] = True
-    except Exception: pass
-    libs['all'] = all(libs.values())
-    libs['partial'] = any(libs.values())
+    # Vina binary present if already downloaded
+    libs['vina'] = os.path.exists("/tmp/vina_bin")
+    libs['all']     = libs['rdkit']   # rdkit is the only pip requirement for docking
+    libs['partial'] = libs['rdkit']
     return libs
 
 
@@ -135,75 +131,167 @@ def prepare_receptor_pdbqt(pdb_path, out_path):
     return os.path.exists(out_path) and os.path.getsize(out_path) > 0
 
 
-def prepare_ligand_pdbqt(lig_path, out_path, ext):
+def rdkit_mol_to_pdbqt(mol):
     """
-    Convert ligand → PDBQT using rdkit + meeko only (no openbabel).
-    Supports SDF, MOL, MOL2, PDB.
+    RDKit mol → PDBQT with BRANCH/ENDBRANCH torsion records.
+    Pure Python — no meeko or openbabel required.
     """
     from rdkit import Chem
     from rdkit.Chem import AllChem
-    from meeko import MoleculePreparation
-
-    mol = None
-    if ext in ('sdf', 'mol'):
-        mol = Chem.MolFromMolFile(lig_path, removeHs=False)
-        if mol is None:
-            mol = Chem.MolFromMolFile(lig_path)
-    elif ext == 'mol2':
-        mol = Chem.MolFromMol2File(lig_path, removeHs=False)
-        if mol is None:
-            mol = Chem.MolFromMol2File(lig_path)
-    elif ext == 'pdb':
-        mol = Chem.MolFromPDBFile(lig_path, removeHs=False)
-        if mol is None:
-            mol = Chem.MolFromPDBFile(lig_path)
-
-    if mol is None:
-        return False
 
     mol = Chem.AddHs(mol)
     if mol.GetNumConformers() == 0:
         AllChem.EmbedMolecule(mol, randomSeed=42)
     AllChem.MMFFOptimizeMolecule(mol)
 
-    prep = MoleculePreparation()
-    # Try new meeko API (>=0.5)
+    AD = {'C':'C','N':'NA','O':'OA','S':'SA','H':'HD',
+          'F':'F','Cl':'Cl','Br':'Br','I':'I','P':'P'}
+    conf = mol.GetConformer()
+
+    rot_bonds = set()
+    for b in mol.GetBonds():
+        a1, a2 = b.GetBeginAtom(), b.GetEndAtom()
+        if (b.GetBondTypeAsDouble() == 1.0 and not b.IsInRing()
+                and a1.GetSymbol() != 'H' and a2.GetSymbol() != 'H'):
+            rot_bonds.add(frozenset([a1.GetIdx(), a2.GetIdx()]))
+
+    atom_num, atom_map, visited, lines = [0], {}, set(), []
+
+    def fmt(idx):
+        atom = mol.GetAtomWithIdx(idx)
+        p = conf.GetAtomPosition(idx)
+        sym = atom.GetSymbol()
+        atom_num[0] += 1
+        atom_map[idx] = atom_num[0]
+        name = f"{sym}{atom_num[0]}"[:4].ljust(4)
+        return (f"HETATM{atom_num[0]:5d} {name} LIG     1    "
+                f"{p.x:8.3f}{p.y:8.3f}{p.z:8.3f}  1.00  0.00    "
+                f"  0.000 {AD.get(sym, sym[:1])}")
+
+    def dfs(idx, parent):
+        visited.add(idx)
+        lines.append(fmt(idx))
+        for nb in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nb.GetIdx()
+            if nidx in visited:
+                continue
+            if frozenset([idx, nidx]) in rot_bonds:
+                pnum = atom_map[idx]
+                bpos = len(lines)
+                lines.append("__BRANCH__")
+                dfs(nidx, idx)
+                lines[bpos] = f"BRANCH {pnum:3d} {atom_map[nidx]:3d}"
+                lines.append(f"ENDBRANCH {pnum:3d} {atom_map[nidx]:3d}")
+            else:
+                dfs(nidx, idx)
+
+    root = next(i for i in range(mol.GetNumAtoms())
+                if mol.GetAtomWithIdx(i).GetSymbol() != 'H')
+    lines.append('ROOT')
+    dfs(root, -1)
+    lines.append('ENDROOT')
+    lines.append(f'TORSDOF {len(rot_bonds)}')
+    return '\n'.join(lines)
+
+
+def prepare_ligand_pdbqt(lig_path, out_path, ext):
+    """Convert ligand (SDF/MOL/MOL2/PDB) → PDBQT using rdkit only."""
+    from rdkit import Chem
+
+    mol = None
+    readers = {
+        'sdf': lambda p: Chem.MolFromMolFile(p, removeHs=False),
+        'mol': lambda p: Chem.MolFromMolFile(p, removeHs=False),
+        'mol2': lambda p: Chem.MolFromMol2File(p, removeHs=False),
+        'pdb': lambda p: Chem.MolFromPDBFile(p, removeHs=False),
+    }
+    reader = readers.get(ext)
+    if reader:
+        mol = reader(lig_path)
+        if mol is None:
+            mol = readers.get(ext, readers['sdf'])(lig_path)  # retry without removeHs flag issue
+
+    if mol is None:
+        return False
+
+    pdbqt_str = rdkit_mol_to_pdbqt(mol)
+    with open(out_path, 'w') as f:
+        f.write(pdbqt_str)
+    return os.path.exists(out_path) and os.path.getsize(out_path) > 0
+
+
+@st.cache_resource(show_spinner=False)
+def get_vina_binary():
+    """
+    Download AutoDock Vina 1.2.5 Linux binary from GitHub at runtime.
+    Cached so it only downloads once per session.
+    Returns (path, error_message).
+    """
+    import urllib.request, stat
+
+    vina_path = "/tmp/vina_bin"
+    url = ("https://github.com/ccsb-scripps/AutoDock-Vina/releases/"
+           "download/v1.2.5/vina_1.2.5_linux_x86_64")
+
+    if os.path.exists(vina_path) and os.path.getsize(vina_path) > 1_000_000:
+        return vina_path, None
+
     try:
-        from meeko import PDBQTWriterLegacy
-        mol_setups = prep.prepare(mol)
-        pdbqt_str, ok, err = PDBQTWriterLegacy.write_string(mol_setups[0])
-        if ok:
-            with open(out_path, 'w') as f:
-                f.write(pdbqt_str)
-            return True
-    except Exception:
-        pass
-    # Fallback: older meeko API (<0.5)
-    try:
-        prep.prepare(mol)
-        prep.write_pdbqt_file(out_path)
-        return os.path.exists(out_path)
-    except Exception:
-        pass
-
-    return False
+        urllib.request.urlretrieve(url, vina_path)
+        os.chmod(vina_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH)
+        return vina_path, None
+    except Exception as e:
+        return None, str(e)
 
 
-def run_vina_docking(receptor_pdbqt, ligand_pdbqt, center, box_size, exhaustiveness, n_poses, seed):
-    """Run AutoDock Vina and return (energies_list, output_pdbqt_path, tmpdir)"""
-    from vina import Vina
+def run_vina_docking(receptor_pdbqt, ligand_pdbqt, center, box_size,
+                     exhaustiveness, n_poses, seed):
+    """
+    Run AutoDock Vina via downloaded binary (subprocess).
+    Returns (energies_list, output_pdbqt_path).
+    """
+    import subprocess
+
+    vina_bin, err = get_vina_binary()
+    if not vina_bin:
+        raise RuntimeError(f"Could not download Vina binary: {err}")
 
     out_path = ligand_pdbqt.replace("ligand.pdbqt", "docked.pdbqt")
 
-    v = Vina(sf_name='vina', seed=int(seed), verbosity=0)
-    v.set_receptor(receptor_pdbqt)
-    v.set_ligand_from_file(ligand_pdbqt)
-    v.compute_vina_maps(center=center, box_size=box_size)
-    v.dock(exhaustiveness=int(exhaustiveness), n_poses=int(n_poses))
-    v.write_poses(out_path, n_poses=int(n_poses), overwrite=True)
+    cmd = [
+        vina_bin,
+        "--receptor", receptor_pdbqt,
+        "--ligand",   ligand_pdbqt,
+        "--center_x", f"{center[0]:.3f}",
+        "--center_y", f"{center[1]:.3f}",
+        "--center_z", f"{center[2]:.3f}",
+        "--size_x",   f"{box_size[0]:.1f}",
+        "--size_y",   f"{box_size[1]:.1f}",
+        "--size_z",   f"{box_size[2]:.1f}",
+        "--exhaustiveness", str(int(exhaustiveness)),
+        "--num_modes",      str(int(n_poses)),
+        "--seed",           str(int(seed)),
+        "--out",            out_path,
+    ]
 
-    energies = v.energies(n_poses=int(n_poses))
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=360)
+    if result.returncode != 0:
+        raise RuntimeError(f"Vina error:\n{result.stderr or result.stdout}")
+
+    # Parse affinity table from stdout
+    energies = []
+    for line in result.stdout.split('\n'):
+        parts = line.split()
+        if len(parts) >= 4:
+            try:
+                int(parts[0])          # mode number
+                energies.append([float(parts[1]), float(parts[2]), float(parts[3])])
+            except ValueError:
+                pass
+
     return energies, out_path
+
+
 
 
 def parse_pdbqt_poses(pdbqt_content):
@@ -268,18 +356,17 @@ def page_docking():
     else:
         st.info("ℹ️ Docking libraries not installed — running in **preparation mode**. Add them to `requirements.txt` for real docking.")
 
-    with st.expander("📦 Required libraries for real docking"):
-        col1, col2 = st.columns(2)
-        statuses = [
-            ("vina",  "AutoDock Vina engine"),
-            ("rdkit", "Molecule reading (SDF/MOL2/PDB)"),
-            ("meeko", "Ligand PDBQT preparation"),
-        ]
-        for i,(k,desc) in enumerate(statuses):
-            col = col1 if i % 2 == 0 else col2
-            icon = "✅" if libs[k] else "❌"
-            col.markdown(f"{icon} **{k}** — {desc}")
-        st.code("# requirements.txt (Streamlit Cloud compatible):\nstreamlit\npandas\nnumpy\nplotly\nvina\nmeeko\nrdkit", language="bash")
+    with st.expander("📦 How docking works on Streamlit Cloud"):
+        st.markdown("""
+- **RDKit** (pip package) — reads your ligand file and generates 3D PDBQT
+- **AutoDock Vina binary** — downloaded automatically from GitHub (~5 MB) on first run, then cached
+- **Receptor prep** — pure Python, no extra packages needed
+- No `openbabel`, `meeko`, or `vina` pip packages required ✅
+        """)
+        st.code("# requirements.txt — only this needed:\nstreamlit\npandas\nnumpy\nplotly\nrdkit", language="bash")
+        icon_r = "✅" if libs['rdkit'] else "❌"
+        icon_v = "✅" if libs['vina']  else "⏳ (downloads when you click Run)"
+        st.markdown(f"{icon_r} **RDKit** installed  |  {icon_v} **Vina binary**")
 
     st.markdown("---")
 
@@ -458,9 +545,8 @@ def _sdf_to_viewer_html(content, ext):
 
 
 def _run_real_docking(prot_file, lig_file, lig_ext, center, box_size, exhaustiveness, n_poses, seed, prot_content):
-    """Run actual AutoDock Vina docking"""
+    """Run actual AutoDock Vina docking via downloaded binary"""
     progress = st.empty()
-    log = st.empty()
 
     try:
         with tempfile.TemporaryDirectory() as tmp:
@@ -469,45 +555,47 @@ def _run_real_docking(prot_file, lig_file, lig_ext, center, box_size, exhaustive
             lig_in     = os.path.join(tmp, f"ligand.{lig_ext}")
             lig_pdbqt  = os.path.join(tmp, "ligand.pdbqt")
 
-            # Save files
             prot_file.seek(0)
             with open(prot_pdb, 'wb') as f: f.write(prot_file.read())
             lig_file.seek(0)
-            with open(lig_in, 'wb') as f: f.write(lig_file.read())
+            with open(lig_in,  'wb') as f: f.write(lig_file.read())
+
+            # Step 0: Download Vina binary (cached after first use)
+            progress.info("⬇️ **Step 1/5** — Downloading AutoDock Vina binary (~5 MB, once per session)...")
+            vina_bin, dl_err = get_vina_binary()
+            if not vina_bin:
+                progress.error(f"❌ Could not download Vina binary: {dl_err}")
+                return
 
             # Step 1: Prepare receptor
-            with progress.container():
-                st.info("⚙️ **Step 1/4** — Preparing receptor (removing waters, adding charges)...")
-            ok = prepare_receptor_pdbqt(prot_pdb, prot_pdbqt)
-            if not ok:
-                st.error("❌ Receptor preparation failed. Check your PDB file.")
+            progress.info("⚙️ **Step 2/5** — Preparing receptor (PDB → PDBQT)...")
+            if not prepare_receptor_pdbqt(prot_pdb, prot_pdbqt):
+                progress.error("❌ Receptor preparation failed. Check your PDB file.")
                 return
 
             # Step 2: Prepare ligand
-            with progress.container():
-                st.info("⚙️ **Step 2/4** — Preparing ligand (generating 3D coords, PDBQT format)...")
-            ok = prepare_ligand_pdbqt(lig_in, lig_pdbqt, lig_ext)
-            if not ok:
-                st.error("❌ Ligand preparation failed. Try SDF format or check the file.")
+            progress.info("⚙️ **Step 3/5** — Preparing ligand (3D conformer + PDBQT)...")
+            if not prepare_ligand_pdbqt(lig_in, lig_pdbqt, lig_ext):
+                progress.error("❌ Ligand preparation failed. Ensure your file has valid 3D coordinates.")
                 return
 
             # Step 3: Run Vina
-            with progress.container():
-                st.warning(f"🚀 **Step 3/4** — Running AutoDock Vina (exhaustiveness={exhaustiveness})... This may take {exhaustiveness//2 + 1}–{exhaustiveness + 2} minutes on free cloud. Please wait.")
+            progress.warning(f"🚀 **Step 4/5** — Running AutoDock Vina (exhaustiveness={exhaustiveness})… "
+                             f"estimated {exhaustiveness + 1}–{exhaustiveness * 2} min. Please wait.")
             energies, docked_path = run_vina_docking(
                 prot_pdbqt, lig_pdbqt, center, box_size, exhaustiveness, n_poses, seed
             )
 
-            # Step 4: Display results
-            with progress.container():
-                st.success("✅ **Step 4/4** — Docking complete! Preparing results...")
+            # Step 4: Show results
+            progress.success("✅ **Step 5/5** — Docking complete!")
 
-            with open(docked_path) as f:
-                docked_content = f.read()
-            with open(prot_pdbqt) as f:
-                receptor_content = f.read()
-            with open(lig_pdbqt) as f:
-                ligand_prep_content = f.read()
+            with open(docked_path) as f: docked_content = f.read()
+            with open(prot_pdbqt)  as f: receptor_content = f.read()
+            with open(lig_pdbqt)   as f: ligand_prep_content = f.read()
+
+            progress.empty()
+            _display_docking_results(energies, docked_content, prot_content,
+                                     receptor_content, ligand_prep_content, center, box_size)
 
             progress.empty()
             log.empty()
@@ -1195,7 +1283,7 @@ with st.sidebar:
     st.markdown("---")
     libs = check_docking_libs()
     st.markdown("**Docking Status:**")
-    for k, label in [("vina","Vina Engine"),("rdkit","RDKit"),("meeko","Meeko")]:
+    for k, label in [("rdkit","RDKit (ligand prep)"),("vina","Vina binary (cached)")]:
         icon = "🟢" if libs[k] else "🔴"
         st.caption(f"{icon} {label}")
     st.markdown("---")
