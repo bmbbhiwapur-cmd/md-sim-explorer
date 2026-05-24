@@ -5,8 +5,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit.components.v1 as components
+import os, tempfile, traceback
 
-# ─── Page Config ────────────────────────────────────────────────────────────────
+# ─── Page Config ─────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="MD Simulation Explorer",
     page_icon="🧬",
@@ -14,86 +15,188 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ─── Custom CSS ─────────────────────────────────────────────────────────────────
+# ─── CSS ─────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;600;700&display=swap');
-
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-
-.main-title {
-    font-size: 2.8rem; font-weight: 700;
-    background: linear-gradient(135deg, #00b4d8, #0077b6, #023e8a);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    margin-bottom: 0.2rem;
-}
-.subtitle { color: #6b7280; font-size: 1.1rem; font-weight: 300; }
-
-.feature-card {
-    background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
-    border-left: 4px solid #0077b6;
-    border-radius: 12px; padding: 1.2rem;
-    margin: 0.4rem 0; transition: transform 0.2s;
-}
-.feature-card:hover { transform: translateX(4px); }
-.feature-card h4 { margin: 0 0 0.4rem 0; color: #0077b6; }
-.feature-card p { margin: 0; color: #374151; font-size: 0.9rem; }
-
-.step-card {
-    background: white; border: 1px solid #e5e7eb;
-    border-radius: 10px; padding: 1rem;
-    margin: 0.4rem 0; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-}
-.step-number {
-    display: inline-block; background: #0077b6; color: white;
-    border-radius: 50%; width: 28px; height: 28px;
-    text-align: center; line-height: 28px; font-weight: 700;
-    font-size: 0.85rem; margin-right: 0.6rem;
-}
-
-.cmd-box {
-    background: #0d1117; color: #58a6ff;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.82rem; padding: 1rem; border-radius: 8px;
-    border-left: 3px solid #58a6ff; margin: 0.5rem 0;
-    overflow-x: auto; white-space: pre;
-}
-.cmd-comment { color: #8b949e; }
-
-.metric-chip {
-    display: inline-block; background: #eff6ff;
-    border: 1px solid #bfdbfe; border-radius: 20px;
-    padding: 0.3rem 0.8rem; margin: 0.2rem;
-    font-size: 0.8rem; color: #1d4ed8; font-weight: 600;
-}
-
-.tip-box {
-    background: #fefce8; border-left: 3px solid #f59e0b;
-    border-radius: 0 8px 8px 0; padding: 0.6rem 1rem;
-    margin-top: 0.6rem; font-size: 0.88rem; color: #78350f;
-}
-.info-box {
-    background: #f0f9ff; border-left: 3px solid #0ea5e9;
-    border-radius: 0 8px 8px 0; padding: 0.6rem 1rem;
-    margin-top: 0.6rem; font-size: 0.88rem; color: #0c4a6e;
-}
-
-.sidebar-header {
-    font-size: 1.3rem; font-weight: 700;
-    color: #0077b6; text-align: center; padding: 0.5rem 0;
-}
-.sidebar-sub {
-    font-size: 0.75rem; color: #9ca3af;
-    text-align: center; margin-bottom: 1rem;
-}
-
-div[data-testid="stMetricValue"] { font-size: 1.4rem !important; font-weight: 700 !important; }
-div[data-testid="stExpander"] { border: 1px solid #e5e7eb !important; border-radius: 10px !important; }
+html,body,[class*="css"]{font-family:'Inter',sans-serif;}
+.main-title{font-size:2.8rem;font-weight:700;background:linear-gradient(135deg,#00b4d8,#0077b6,#023e8a);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:.2rem;}
+.subtitle{color:#6b7280;font-size:1.1rem;font-weight:300;}
+.feature-card{background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border-left:4px solid #0077b6;border-radius:12px;padding:1.2rem;margin:.4rem 0;}
+.feature-card h4{margin:0 0 .4rem 0;color:#0077b6;}
+.feature-card p{margin:0;color:#374151;font-size:.9rem;}
+.step-card{background:white;border:1px solid #e5e7eb;border-radius:10px;padding:1rem;margin:.4rem 0;box-shadow:0 2px 8px rgba(0,0,0,.06);}
+.step-number{display:inline-block;background:#0077b6;color:white;border-radius:50%;width:28px;height:28px;text-align:center;line-height:28px;font-weight:700;font-size:.85rem;margin-right:.6rem;}
+.dock-step{background:#f8fafc;border:2px solid #e2e8f0;border-radius:14px;padding:1.4rem;margin:.8rem 0;}
+.dock-step-header{font-size:1.1rem;font-weight:700;color:#0f172a;margin-bottom:.8rem;}
+.result-card{background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-left:4px solid #16a34a;border-radius:10px;padding:1rem;margin:.4rem 0;}
+.score-best{color:#16a34a;font-weight:700;font-size:1.2rem;}
+.score-good{color:#0077b6;font-weight:600;}
+.score-weak{color:#ea580c;font-weight:600;}
+.tip-box{background:#fefce8;border-left:3px solid #f59e0b;border-radius:0 8px 8px 0;padding:.6rem 1rem;margin-top:.6rem;font-size:.88rem;color:#78350f;}
+.info-box{background:#f0f9ff;border-left:3px solid #0ea5e9;border-radius:0 8px 8px 0;padding:.6rem 1rem;margin-top:.6rem;font-size:.88rem;color:#0c4a6e;}
+.warn-box{background:#fff7ed;border-left:3px solid #f97316;border-radius:0 8px 8px 0;padding:.6rem 1rem;font-size:.88rem;color:#7c2d12;}
+div[data-testid="stMetricValue"]{font-size:1.4rem!important;font-weight:700!important;}
 </style>
 """, unsafe_allow_html=True)
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# DOCKING UTILITIES
+# ═══════════════════════════════════════════════════════════════════════════════
 
-# ─── XVG Parser ─────────────────────────────────────────────────────────────────
+def check_docking_libs():
+    libs = {'vina': False, 'rdkit': False, 'meeko': False, 'obabel': False}
+    try:
+        from vina import Vina; libs['vina'] = True
+    except Exception: pass
+    try:
+        from rdkit import Chem; libs['rdkit'] = True
+    except Exception: pass
+    try:
+        import meeko; libs['meeko'] = True
+    except Exception: pass
+    try:
+        from openbabel import pybel; libs['obabel'] = True
+    except Exception: pass
+    libs['all'] = all(libs.values())
+    libs['partial'] = any(libs.values())
+    return libs
+
+
+def get_ligand_centroid(content, ext):
+    """Parse coordinates from SDF/MOL2/PDB and return centroid [x,y,z]"""
+    coords = []
+    try:
+        if ext in ('sdf', 'mol'):
+            lines = content.split('\n')
+            if len(lines) < 4: return [0.0,0.0,0.0]
+            cl = lines[3]
+            try:   n_atoms = int(cl[:3].strip())
+            except: return [0.0,0.0,0.0]
+            for i in range(4, 4 + n_atoms):
+                if i < len(lines):
+                    p = lines[i].split()
+                    if len(p) >= 3:
+                        coords.append([float(p[0]), float(p[1]), float(p[2])])
+        elif ext == 'pdb':
+            for line in content.split('\n'):
+                if line.startswith(('ATOM','HETATM')):
+                    try: coords.append([float(line[30:38]), float(line[38:46]), float(line[46:54])])
+                    except: pass
+        elif ext == 'mol2':
+            in_atom = False
+            for line in content.split('\n'):
+                if '@<TRIPOS>ATOM' in line: in_atom = True; continue
+                if '@<TRIPOS>' in line and 'ATOM' not in line: in_atom = False
+                if in_atom:
+                    p = line.split()
+                    if len(p) >= 5:
+                        try: coords.append([float(p[2]), float(p[3]), float(p[4])])
+                        except: pass
+    except Exception: pass
+    if coords:
+        arr = np.array(coords)
+        return arr.mean(axis=0).round(3).tolist()
+    return [0.0, 0.0, 0.0]
+
+
+def prepare_receptor_pdbqt(pdb_path, out_path):
+    """Convert protein PDB → PDBQT using OpenBabel"""
+    from openbabel import pybel
+    mol = next(pybel.readfile("pdb", pdb_path))
+    mol.write("pdbqt", out_path, overwrite=True)
+    return os.path.exists(out_path)
+
+
+def prepare_ligand_pdbqt(lig_path, out_path, ext):
+    """Convert ligand → PDBQT, try meeko+rdkit first, fallback to openbabel"""
+    # --- Try meeko + RDKit (best for SDF/PDB) ---
+    if ext in ('sdf', 'mol', 'pdb'):
+        try:
+            from rdkit import Chem
+            from rdkit.Chem import AllChem
+            import meeko
+            from meeko import MoleculePreparation
+
+            if ext in ('sdf', 'mol'):
+                mol = Chem.MolFromMolFile(lig_path, removeHs=False)
+            else:
+                mol = Chem.MolFromPDBFile(lig_path, removeHs=False)
+
+            if mol is None:
+                raise ValueError("RDKit could not read molecule")
+
+            mol = Chem.AddHs(mol)
+            if mol.GetNumConformers() == 0:
+                AllChem.EmbedMolecule(mol, randomSeed=42)
+            AllChem.MMFFOptimizeMolecule(mol)
+
+            prep = MoleculePreparation()
+            # Support both old and new meeko API
+            try:
+                from meeko import PDBQTWriterLegacy
+                mol_setups = prep.prepare(mol)
+                pdbqt_str, ok, err = PDBQTWriterLegacy.write_string(mol_setups[0])
+                if ok:
+                    with open(out_path, 'w') as f: f.write(pdbqt_str)
+                    return True
+            except Exception:
+                prep.prepare(mol)
+                prep.write_pdbqt_file(out_path)
+                return os.path.exists(out_path)
+        except Exception:
+            pass  # fall through to openbabel
+
+    # --- Fallback: OpenBabel ---
+    try:
+        from openbabel import pybel
+        mol = next(pybel.readfile(ext if ext != 'mol' else 'sdf', lig_path))
+        mol.addh()
+        if not mol.OBMol.Has3D():
+            mol.make3D()
+        mol.write("pdbqt", out_path, overwrite=True)
+        return os.path.exists(out_path)
+    except Exception:
+        pass
+
+    return False
+
+
+def run_vina_docking(receptor_pdbqt, ligand_pdbqt, center, box_size, exhaustiveness, n_poses, seed):
+    """Run AutoDock Vina and return (energies_list, output_pdbqt_path, tmpdir)"""
+    from vina import Vina
+
+    out_path = ligand_pdbqt.replace("ligand.pdbqt", "docked.pdbqt")
+
+    v = Vina(sf_name='vina', seed=int(seed), verbosity=0)
+    v.set_receptor(receptor_pdbqt)
+    v.set_ligand_from_file(ligand_pdbqt)
+    v.compute_vina_maps(center=center, box_size=box_size)
+    v.dock(exhaustiveness=int(exhaustiveness), n_poses=int(n_poses))
+    v.write_poses(out_path, n_poses=int(n_poses), overwrite=True)
+
+    energies = v.energies(n_poses=int(n_poses))
+    return energies, out_path
+
+
+def parse_pdbqt_poses(pdbqt_content):
+    """Split PDBQT multi-pose file into individual pose strings"""
+    poses, current = [], []
+    for line in pdbqt_content.split('\n'):
+        current.append(line)
+        if line.startswith('ENDMDL') or line.startswith('END'):
+            if any(l.startswith(('ATOM','HETATM')) for l in current):
+                poses.append('\n'.join(current))
+            current = []
+    if current and any(l.startswith(('ATOM','HETATM')) for l in current):
+        poses.append('\n'.join(current))
+    return poses if poses else [pdbqt_content]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# XVG PARSER (reused across analysis pages)
+# ═══════════════════════════════════════════════════════════════════════════════
+
 def parse_xvg(uploaded_file):
     try:
         content = uploaded_file.read().decode("utf-8", errors="ignore")
@@ -104,822 +207,970 @@ def parse_xvg(uploaded_file):
     x_label, y_label, title = "Time (ps)", "Value", "GROMACS Output"
     for line in lines:
         line = line.strip()
-        if line.startswith("#"):
-            continue
+        if line.startswith("#"): continue
         elif line.startswith("@"):
-            if 'xaxis  label' in line and '"' in line:
-                x_label = line.split('"')[1]
-            elif 'yaxis  label' in line and '"' in line:
-                y_label = line.split('"')[1]
-            elif line.startswith("@ title") and '"' in line:
-                title = line.split('"')[1]
-            elif "legend" in line and '"' in line:
-                legends.append(line.split('"')[1])
+            if 'xaxis  label' in line and '"' in line: x_label = line.split('"')[1]
+            elif 'yaxis  label' in line and '"' in line: y_label = line.split('"')[1]
+            elif line.startswith("@ title") and '"' in line: title = line.split('"')[1]
+            elif "legend" in line and '"' in line: legends.append(line.split('"')[1])
         else:
             try:
                 vals = list(map(float, line.split()))
-                if vals:
-                    data.append(vals)
-            except Exception:
-                pass
-    if not data:
-        return None, x_label, y_label, title, legends
+                if vals: data.append(vals)
+            except: pass
+    if not data: return None, x_label, y_label, title, legends
     return pd.DataFrame(data), x_label, y_label, title, legends
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PAGE: MOLECULAR DOCKING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def page_docking():
+    st.markdown('<div class="main-title">🎯 Molecular Docking</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Upload protein + ligand → define binding site → run AutoDock Vina</div>', unsafe_allow_html=True)
+    st.markdown("")
+
+    # ── Library status banner ─────────────────────────────────────────────────
+    libs = check_docking_libs()
+    if libs['all']:
+        st.success("✅ All docking libraries detected — **real AutoDock Vina docking** is active.")
+    elif libs['partial']:
+        missing = [k for k,v in libs.items() if k not in ('all','partial') and not v]
+        st.warning(f"⚠️ Partial install ({', '.join(missing)} missing) — will run in **preparation mode** and show you the commands to run locally.")
+    else:
+        st.info("ℹ️ Docking libraries not installed — running in **preparation mode**. Add them to `requirements.txt` for real docking.")
+
+    with st.expander("📦 Required libraries for real docking"):
+        col1, col2 = st.columns(2)
+        statuses = [
+            ("vina", "AutoDock Vina engine"),
+            ("rdkit", "Molecule reading (SDF/PDB)"),
+            ("meeko", "Ligand PDBQT preparation"),
+            ("obabel", "Format conversion (MOL2 support)"),
+        ]
+        for i,(k,desc) in enumerate(statuses):
+            col = col1 if i % 2 == 0 else col2
+            icon = "✅" if libs[k] else "❌"
+            col.markdown(f"{icon} **{k}** — {desc}")
+        st.code("# Add to requirements.txt:\nvina\nmeeko\nrdkit\nopenbabel-wheel", language="bash")
+
+    st.markdown("---")
+
+    # ── STEP 1: Upload files ──────────────────────────────────────────────────
+    st.markdown('<div class="dock-step"><div class="dock-step-header">📁 Step 1 — Upload Protein & Ligand</div>', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**🧬 Protein (Receptor)**")
+        st.caption("Crystal structure or homology model — PDB format")
+        prot_file = st.file_uploader("Upload Protein", type=['pdb'], label_visibility="collapsed")
+        if prot_file:
+            prot_content = prot_file.read().decode('utf-8', errors='ignore')
+            prot_file.seek(0)
+            atom_lines = [l for l in prot_content.split('\n') if l.startswith('ATOM')]
+            het_lines  = [l for l in prot_content.split('\n') if l.startswith('HETATM') and 'HOH' not in l]
+            water_lines= [l for l in prot_content.split('\n') if 'HOH' in l]
+            st.success(f"✅ **{prot_file.name}**")
+            c1,c2,c3 = st.columns(3)
+            c1.metric("ATOM records", len(atom_lines))
+            c2.metric("HETATM", len(het_lines))
+            c3.metric("Waters", len(water_lines))
+        else:
+            prot_content = None
+            st.markdown('<div class="info-box">Upload your receptor PDB file. Tip: remove all waters and co-factors before uploading.</div>', unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("**💊 Ligand (Drug Molecule)**")
+        st.caption("Supports SDF, MOL2, MOL, PDB formats")
+        lig_file = st.file_uploader("Upload Ligand", type=['sdf','mol2','mol','pdb'], label_visibility="collapsed")
+        if lig_file:
+            lig_ext = lig_file.name.rsplit('.',1)[-1].lower()
+            lig_content = lig_file.read().decode('utf-8', errors='ignore')
+            lig_file.seek(0)
+            st.success(f"✅ **{lig_file.name}** (.{lig_ext})")
+            centroid = get_ligand_centroid(lig_content, lig_ext)
+            st.info(f"📍 Ligand centroid detected: X={centroid[0]:.2f}, Y={centroid[1]:.2f}, Z={centroid[2]:.2f}")
+            st.caption("Use these as box center coordinates below ↓")
+        else:
+            lig_content, lig_ext, centroid = None, None, [0.0, 0.0, 0.0]
+            st.markdown('<div class="info-box">Upload your drug molecule. SDF is recommended for best compatibility.</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── STEP 2: 3D Preview ────────────────────────────────────────────────────
+    if prot_content or lig_content:
+        st.markdown('<div class="dock-step"><div class="dock-step-header">🔬 Step 2 — 3D Structure Preview</div>', unsafe_allow_html=True)
+
+        preview_cols = st.columns(2)
+        if prot_content:
+            with preview_cols[0]:
+                st.markdown("**Protein**")
+                _show_3dmol(prot_content, style="cartoon", color="spectrum", height=320, label="protein")
+        if lig_content:
+            with preview_cols[1]:
+                st.markdown("**Ligand**")
+                lig_pdb_for_view = lig_content if lig_ext == 'pdb' else _sdf_to_viewer_html(lig_content, lig_ext)
+                if lig_pdb_for_view:
+                    _show_3dmol(lig_pdb_for_view, style="stick", color="element", height=320, label="ligand")
+                else:
+                    st.info("3D preview available for PDB ligands. Molecule loaded for docking.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── STEP 3: Binding site box ──────────────────────────────────────────────
+    st.markdown('<div class="dock-step"><div class="dock-step-header">📦 Step 3 — Define Binding Site Search Box</div>', unsafe_allow_html=True)
+
+    with st.expander("ℹ️ How to find binding site coordinates"):
+        st.markdown("""
+**Option A — Use ligand centroid (auto-detected above):** If you uploaded a reference ligand or co-crystallized drug, its centroid is shown above. Use those values.
+
+**Option B — From PyMOL:**
+```python
+# Select binding site residues and get center
+select site, resi 101+203+305
+center site
+get_position   # shows X Y Z of current view center
+```
+
+**Option C — From UCSF Chimera:**
+- Select residues → Actions → Inspect → shows coordinates
+
+**Box size tip:** Start with 20×20×20 Å. Increase if ligand is large or binding site is flexible.
+        """)
+
+    cx_default = float(centroid[0]) if lig_content else 0.0
+    cy_default = float(centroid[1]) if lig_content else 0.0
+    cz_default = float(centroid[2]) if lig_content else 0.0
+
+    bcol1, bcol2 = st.columns(2)
+    with bcol1:
+        st.markdown("**Box Center (Å)**")
+        c1,c2,c3 = st.columns(3)
+        cx = c1.number_input("X", value=cx_default, step=0.5, key="bx", format="%.2f")
+        cy = c2.number_input("Y", value=cy_default, step=0.5, key="by", format="%.2f")
+        cz = c3.number_input("Z", value=cz_default, step=0.5, key="bz", format="%.2f")
+    with bcol2:
+        st.markdown("**Box Size (Å)**")
+        s1,s2,s3 = st.columns(3)
+        sx = s1.number_input("X", value=20.0, min_value=10.0, max_value=40.0, step=1.0, key="sx")
+        sy = s2.number_input("Y", value=20.0, min_value=10.0, max_value=40.0, step=1.0, key="sy")
+        sz = s3.number_input("Z", value=20.0, min_value=10.0, max_value=40.0, step=1.0, key="sz")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── STEP 4: Settings ──────────────────────────────────────────────────────
+    st.markdown('<div class="dock-step"><div class="dock-step-header">⚙️ Step 4 — Docking Settings</div>', unsafe_allow_html=True)
+    scol1, scol2, scol3, scol4 = st.columns(4)
+    with scol1:
+        exhaustiveness = st.slider("Exhaustiveness", 1, 16, 4,
+            help="Higher = more accurate but slower. 4 = fast (~2 min), 8 = standard (~5 min)")
+    with scol2:
+        n_poses = st.slider("Number of poses", 1, 9, 5)
+    with scol3:
+        seed = st.number_input("Random seed", value=42, min_value=0, step=1)
+    with scol4:
+        st.markdown("")
+        st.markdown("")
+        st.markdown(f"⏱️ Est. time: ~**{exhaustiveness*30//60 + 1} min** on free cloud")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── STEP 5: RUN ───────────────────────────────────────────────────────────
+    st.markdown("---")
+    btn_disabled = not (prot_content and lig_content)
+
+    if btn_disabled:
+        st.info("👆 Upload both protein and ligand files to enable the docking button.")
+    else:
+        col_run, col_mode = st.columns([2,1])
+        with col_run:
+            run_btn = st.button("🚀 Run AutoDock Vina Docking", type="primary", use_container_width=True)
+        with col_mode:
+            force_prep = st.checkbox("Force preparation mode only", value=False,
+                help="Skip real docking — just prepare files and show commands")
+
+        if run_btn:
+            if libs['all'] and not force_prep:
+                _run_real_docking(
+                    prot_file, lig_file, lig_ext,
+                    [cx, cy, cz], [sx, sy, sz],
+                    exhaustiveness, n_poses, seed,
+                    prot_content
+                )
+            else:
+                _run_prep_mode(prot_content, lig_content, lig_ext,
+                               [cx,cy,cz], [sx,sy,sz], exhaustiveness, n_poses)
+
+
+def _show_3dmol(pdb_content, style="cartoon", color="spectrum", height=350, label="mol"):
+    escaped = pdb_content.replace("`","\\`").replace("\\","\\\\")
+    styles = {
+        "cartoon": f"{{cartoon:{{color:'{color}'}}}}",
+        "stick": "{stick:{}}",
+        "sphere": "{sphere:{radius:0.4}}",
+        "element": "{stick:{colorscheme:'elementColors'}}",
+    }
+    s = styles.get(style, styles["stick"])
+    html = f"""<!DOCTYPE html><html><head>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+<script src="https://3dmol.org/build/3Dmol-min.js"></script>
+<style>body{{margin:0;background:#0d1b2a;}}#v{{width:100%;height:{height}px;}}</style>
+</head><body><div id="v"></div>
+<script>
+var v=$3Dmol.createViewer("v",{{backgroundColor:"0x0d1b2a"}});
+v.addModel(`{escaped}`,"pdb");
+v.setStyle({{}},%s);
+v.zoomTo();v.render();
+</script></body></html>""" % s
+    components.html(html, height=height+10, scrolling=False)
+
+
+def _sdf_to_viewer_html(content, ext):
+    """For non-PDB ligands, try to show using 3dmol SDF support"""
+    if ext in ('sdf','mol'):
+        return content  # 3dmol can handle SDF directly with format hint
+    return None
+
+
+def _run_real_docking(prot_file, lig_file, lig_ext, center, box_size, exhaustiveness, n_poses, seed, prot_content):
+    """Run actual AutoDock Vina docking"""
+    progress = st.empty()
+    log = st.empty()
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            prot_pdb   = os.path.join(tmp, "receptor.pdb")
+            prot_pdbqt = os.path.join(tmp, "receptor.pdbqt")
+            lig_in     = os.path.join(tmp, f"ligand.{lig_ext}")
+            lig_pdbqt  = os.path.join(tmp, "ligand.pdbqt")
+
+            # Save files
+            prot_file.seek(0)
+            with open(prot_pdb, 'wb') as f: f.write(prot_file.read())
+            lig_file.seek(0)
+            with open(lig_in, 'wb') as f: f.write(lig_file.read())
+
+            # Step 1: Prepare receptor
+            with progress.container():
+                st.info("⚙️ **Step 1/4** — Preparing receptor (removing waters, adding charges)...")
+            ok = prepare_receptor_pdbqt(prot_pdb, prot_pdbqt)
+            if not ok:
+                st.error("❌ Receptor preparation failed. Check your PDB file.")
+                return
+
+            # Step 2: Prepare ligand
+            with progress.container():
+                st.info("⚙️ **Step 2/4** — Preparing ligand (generating 3D coords, PDBQT format)...")
+            ok = prepare_ligand_pdbqt(lig_in, lig_pdbqt, lig_ext)
+            if not ok:
+                st.error("❌ Ligand preparation failed. Try SDF format or check the file.")
+                return
+
+            # Step 3: Run Vina
+            with progress.container():
+                st.warning(f"🚀 **Step 3/4** — Running AutoDock Vina (exhaustiveness={exhaustiveness})... This may take {exhaustiveness//2 + 1}–{exhaustiveness + 2} minutes on free cloud. Please wait.")
+            energies, docked_path = run_vina_docking(
+                prot_pdbqt, lig_pdbqt, center, box_size, exhaustiveness, n_poses, seed
+            )
+
+            # Step 4: Display results
+            with progress.container():
+                st.success("✅ **Step 4/4** — Docking complete! Preparing results...")
+
+            with open(docked_path) as f:
+                docked_content = f.read()
+            with open(prot_pdbqt) as f:
+                receptor_content = f.read()
+            with open(lig_pdbqt) as f:
+                ligand_prep_content = f.read()
+
+            progress.empty()
+            log.empty()
+
+            _display_docking_results(energies, docked_content, prot_content,
+                                     receptor_content, ligand_prep_content, center, box_size)
+
+    except Exception as e:
+        progress.empty()
+        st.error(f"❌ Docking failed: {str(e)}")
+        with st.expander("🔍 Full error details"):
+            st.code(traceback.format_exc())
+        st.info("💡 Switching to **preparation mode** — you can run locally with the commands below.")
+        prot_file.seek(0)
+        lig_file.seek(0)
+        pc = prot_file.read().decode('utf-8', errors='ignore')
+        lc = lig_file.read().decode('utf-8', errors='ignore')
+        _run_prep_mode(pc, lc, lig_ext, center, box_size, exhaustiveness, n_poses)
+
+
+def _display_docking_results(energies, docked_content, prot_content,
+                              receptor_content, ligand_prep_content, center, box_size):
+    st.markdown("---")
+    st.markdown("## 🏆 Docking Results")
+
+    # ── Scores table ──
+    st.markdown("### Binding Affinity Scores")
+    if energies is not None and len(energies) > 0:
+        rows = []
+        for i, e in enumerate(energies):
+            score = float(e[0]) if hasattr(e,'__len__') else float(e)
+            rows.append({
+                "Pose": i+1,
+                "Binding Affinity (kcal/mol)": round(score, 2),
+                "RMSD lb": round(float(e[1]), 2) if hasattr(e,'__len__') and len(e)>1 else "—",
+                "RMSD ub": round(float(e[2]), 2) if hasattr(e,'__len__') and len(e)>2 else "—",
+                "Rating": "⭐ Best" if i==0 else ("✅ Good" if score < -7 else ("⚠️ Moderate" if score < -5 else "❌ Weak")),
+            })
+        df_results = pd.DataFrame(rows)
+        st.dataframe(df_results, use_container_width=True, hide_index=True)
+
+        best_score = rows[0]["Binding Affinity (kcal/mol)"]
+        c1,c2,c3 = st.columns(3)
+        c1.metric("Best Binding Affinity", f"{best_score} kcal/mol")
+        c2.metric("Total Poses", len(rows))
+        c3.metric("Poses < -7 kcal/mol", sum(1 for r in rows if r["Binding Affinity (kcal/mol)"] < -7))
+
+        if best_score < -9:
+            st.success(f"🏆 **Excellent binding** ({best_score} kcal/mol) — Strong drug candidate! Proceed to MD simulation.")
+        elif best_score < -7:
+            st.success(f"✅ **Good binding** ({best_score} kcal/mol) — Promising compound. Recommend MD validation.")
+        elif best_score < -5:
+            st.warning(f"⚠️ **Moderate binding** ({best_score} kcal/mol) — Consider structural optimization.")
+        else:
+            st.error(f"❌ **Weak binding** ({best_score} kcal/mol) — Try a different compound or adjust binding site.")
+
+        # Bar chart
+        fig = go.Figure(go.Bar(
+            x=[f"Pose {r['Pose']}" for r in rows],
+            y=[abs(r["Binding Affinity (kcal/mol)"]) for r in rows],
+            marker_color=["#16a34a" if i==0 else "#0077b6" for i in range(len(rows))],
+            text=[f"{r['Binding Affinity (kcal/mol)']} kcal/mol" for r in rows],
+            textposition='outside',
+        ))
+        fig.update_layout(
+            title="Binding Affinity per Pose (larger bar = stronger binding)",
+            yaxis_title="|Binding Affinity| (kcal/mol)",
+            template="plotly_white", height=320,
+            yaxis=dict(autorange=True)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("Could not parse energy scores from output.")
+
+    # ── 3D Viewer: protein + best docked pose ──
+    st.markdown("### 🔬 3D View — Best Docked Pose")
+    poses = parse_pdbqt_poses(docked_content)
+    best_pose_pdbqt = poses[0] if poses else docked_content
+
+    # Build combined PDB for viewing: protein + docked ligand
+    combined = prot_content + "\n" + best_pose_pdbqt
+    escaped = combined.replace("`","\\`").replace("\\","\\\\")
+    box_js = f"""
+    viewer.addBox({{
+        center:{{x:{center[0]},y:{center[1]},z:{center[2]}}},
+        dimensions:{{w:{box_size[0]},h:{box_size[1]},d:{box_size[2]}}},
+        color:'yellow', opacity:0.15, wireframe:true
+    }});
+    """
+    html_view = f"""<!DOCTYPE html><html><head>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+<script src="https://3dmol.org/build/3Dmol-min.js"></script>
+<style>body{{margin:0;background:#0d1b2a;}}#v{{width:100%;height:500px;}}</style>
+</head><body><div id="v"></div>
+<script>
+var v=$3Dmol.createViewer("v",{{backgroundColor:"0x0d1b2a"}});
+v.addModel(`{escaped}`,"pdb");
+v.setStyle({{}},"{{cartoon:{{color:'spectrum'}}}}");
+v.setStyle({{hetflag:true}},{{stick:{{}}}});
+v.setStyle({{hetflag:true,resn:"HOH"}},{{sphere:{{radius:0.15}}}});
+{box_js}
+v.zoomTo({{hetflag:true}});
+v.render();
+</script></body></html>"""
+    # Fix the JS object literal (Python f-string escaping issue)
+    html_view = html_view.replace('"{{cartoon:{{color:\'spectrum\'}}}}"', "{cartoon:{color:'spectrum'}}")
+    components.html(html_view, height=520)
+    st.caption("🟡 Yellow box = docking search space | Protein shown as cartoon | Ligand as sticks")
+
+    # ── Downloads ──
+    st.markdown("### 📥 Download Results")
+    dl1, dl2, dl3 = st.columns(3)
+    dl1.download_button("⬇️ Docked Poses (.pdbqt)", docked_content,
+                        "docked_poses.pdbqt", "chemical/x-pdbqt")
+    dl2.download_button("⬇️ Prepared Receptor (.pdbqt)", receptor_content,
+                        "receptor.pdbqt", "chemical/x-pdbqt")
+    dl3.download_button("⬇️ Prepared Ligand (.pdbqt)", ligand_prep_content,
+                        "ligand_prepared.pdbqt", "chemical/x-pdbqt")
+
+    # ── Next step ──
+    st.markdown("---")
+    st.markdown("### ➡️ Next Steps: MD Simulation")
+    st.info("""
+**Your docking is done! Here's what to do next:**
+
+1. Download the **docked poses** above
+2. Open in **PyMOL** or **Chimera** — visually inspect the best pose
+3. Verify key interactions match literature (H-bonds, hydrophobic contacts)
+4. Use the **📚 MD Workflow Guide** in this app to set up GROMACS MD simulation
+5. Upload your MD results (.xvg files) to the analysis pages in this app
+
+**Key quality check:** Is the ligand in the expected binding pocket? Does it match known inhibitors?
+    """)
+
+
+def _run_prep_mode(prot_content, lig_content, lig_ext, center, box_size, exhaustiveness, n_poses):
+    """Preparation mode — prepare files and show commands"""
+    st.markdown("---")
+    st.markdown("## 📦 Preparation Mode")
+    st.info("Real docking libraries not available on this server. Here are your **prepared files and ready-to-run commands** for your local machine.")
+
+    cx, cy, cz = center
+    sx, sy, sz = box_size
+
+    # Protein info
+    atom_count = sum(1 for l in prot_content.split('\n') if l.startswith('ATOM'))
+    st.success(f"✅ Protein file valid — {atom_count} ATOM records found")
+
+    # Ligand info
+    cent = get_ligand_centroid(lig_content, lig_ext)
+    st.success(f"✅ Ligand file valid (.{lig_ext}) — centroid at {cent[0]:.2f}, {cent[1]:.2f}, {cent[2]:.2f}")
+
+    st.markdown("### 🖥️ Commands to Run Locally")
+    st.markdown("**Step 1 — Install tools (once):**")
+    st.code("""# Install AutoDock Vina + preparation tools
+pip install vina meeko rdkit openbabel-wheel
+
+# Or via conda (recommended):
+conda install -c conda-forge vina meeko rdkit openbabel""", language="bash")
+
+    st.markdown("**Step 2 — Prepare receptor:**")
+    st.code("""# Option A: Python
+from openbabel import pybel
+mol = next(pybel.readfile("pdb", "protein.pdb"))
+mol.write("pdbqt", "receptor.pdbqt", overwrite=True)
+
+# Option B: Command line (if AutoDockTools installed)
+python prepare_receptor4.py -r protein.pdb -o receptor.pdbqt -A hydrogens""", language="python")
+
+    st.markdown("**Step 3 — Prepare ligand:**")
+    if lig_ext in ('sdf','mol'):
+        st.code(f"""from rdkit import Chem
+from rdkit.Chem import AllChem
+from meeko import MoleculePreparation
+
+mol = Chem.MolFromMolFile("ligand.{lig_ext}")
+mol = Chem.AddHs(mol)
+AllChem.EmbedMolecule(mol, randomSeed=42)
+AllChem.MMFFOptimizeMolecule(mol)
+
+prep = MoleculePreparation()
+prep.prepare(mol)
+prep.write_pdbqt_file("ligand.pdbqt")""", language="python")
+    elif lig_ext == 'mol2':
+        st.code("""from openbabel import pybel
+mol = next(pybel.readfile("mol2", "ligand.mol2"))
+mol.addh()
+mol.make3D()
+mol.write("pdbqt", "ligand.pdbqt", overwrite=True)""", language="python")
+    else:
+        st.code("""acpype -i ligand.pdb -c bcc -n 0
+# OR
+obabel ligand.pdb -O ligand.pdbqt -xr""", language="bash")
+
+    st.markdown("**Step 4 — Run AutoDock Vina:**")
+    st.code(f"""from vina import Vina
+
+v = Vina(sf_name='vina')
+v.set_receptor("receptor.pdbqt")
+v.set_ligand_from_file("ligand.pdbqt")
+v.compute_vina_maps(
+    center=[{cx:.2f}, {cy:.2f}, {cz:.2f}],
+    box_size=[{sx:.1f}, {sy:.1f}, {sz:.1f}]
+)
+v.dock(exhaustiveness={exhaustiveness}, n_poses={n_poses})
+v.write_poses("docked.pdbqt", n_poses={n_poses}, overwrite=True)
+
+# Print scores
+energies = v.energies()
+for i, e in enumerate(energies):
+    print(f"Pose {{i+1}}: {{e[0]:.2f}} kcal/mol")""", language="python")
+
+    # Config file option
+    st.markdown("**Alternative — Vina config file:**")
+    config_str = f"""receptor = receptor.pdbqt
+ligand = ligand.pdbqt
+
+center_x = {cx:.2f}
+center_y = {cy:.2f}
+center_z = {cz:.2f}
+
+size_x = {sx:.1f}
+size_y = {sy:.1f}
+size_z = {sz:.1f}
+
+exhaustiveness = {exhaustiveness}
+num_modes = {n_poses}
+energy_range = 3
+out = docked.pdbqt
+log = docking_log.txt
+"""
+    st.code(f"""# Run from terminal:
+vina --config config.txt""", language="bash")
+
+    col1, col2 = st.columns(2)
+    col1.download_button("⬇️ Download config.txt", config_str, "config.txt", "text/plain")
+    col2.download_button("⬇️ Download Protein PDB", prot_content, "protein_clean.pdb", "chemical/x-pdb")
+
+    st.markdown("### 📊 Interpreting Results")
+    interp = pd.DataFrame({
+        "Score (kcal/mol)": ["< −9", "−7 to −9", "−5 to −7", "> −5"],
+        "Interpretation": ["🏆 Excellent", "✅ Good", "⚠️ Moderate", "❌ Weak"],
+        "Action": ["Proceed to MD", "Proceed to MD", "Optimize ligand", "Redesign compound"],
+    })
+    st.dataframe(interp, use_container_width=True, hide_index=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PAGE: HOME
 # ═══════════════════════════════════════════════════════════════════════════════
+
 def page_home():
     st.markdown('<div class="main-title">🧬 MD Simulation Explorer</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle">Interactive guide & analysis toolkit for post-docking Molecular Dynamics</div>', unsafe_allow_html=True)
-    st.markdown("---")
+    st.markdown('<div class="subtitle">From molecular docking to MD simulation analysis — all in one place</div>', unsafe_allow_html=True)
+    st.markdown("")
 
-    c1, c2, c3 = st.columns(3)
-    cards = [
-        ("📚 Learn", "Step-by-step workflow from docking output to production MD run with GROMACS commands."),
-        ("📊 Analyze", "Upload .xvg / .csv result files and get instant interactive plots with statistics."),
-        ("🔬 Visualize", "Load a PDB file and explore your protein-ligand complex in 3D interactively."),
-    ]
-    for col, (title, desc) in zip([c1, c2, c3], cards):
+    c1,c2,c3,c4 = st.columns(4)
+    for col, (title, desc) in zip([c1,c2,c3,c4],[
+        ("🎯 Dock","Upload protein + drug and run AutoDock Vina directly in the browser"),
+        ("📚 Learn","Step-by-step GROMACS workflow with commands for every stage"),
+        ("📊 Analyze","Upload .xvg files for RMSD, RMSF, H-bond and MM-PBSA plots"),
+        ("🔬 Visualize","Interactive 3D viewer for protein-ligand PDB structures"),
+    ]):
         with col:
             st.markdown(f'<div class="feature-card"><h4>{title}</h4><p>{desc}</p></div>', unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown("### 🗺️ Workflow Overview")
+    st.markdown("### 🗺️ Full Pipeline")
     steps = [
-        ("1", "Molecular Docking", "AutoDock Vina / Glide"),
-        ("2", "Ligand Topology", "ACPYPE / CGenFF"),
-        ("3", "Protein Topology", "pdb2gmx"),
-        ("4", "Solvation & Ions", "editconf + genion"),
-        ("5", "Energy Minimization", "gmx mdrun"),
-        ("6", "NVT Equilibration", "300K, V-rescale"),
-        ("7", "NPT Equilibration", "1 bar, Parrinello-Rahman"),
-        ("8", "Production MD", "50–200 ns"),
-        ("9", "RMSD / RMSF", "Stability & Flexibility"),
-        ("10", "H-Bond Analysis", "Interaction Persistence"),
-        ("11", "MM-PBSA", "Binding Free Energy"),
+        ("1","Molecular Docking","This app — AutoDock Vina"),
+        ("2","Best Pose Selection","PyMOL / Chimera"),
+        ("3","Ligand Topology","ACPYPE / CGenFF"),
+        ("4","Protein Topology","pdb2gmx"),
+        ("5","Solvation","editconf + genion"),
+        ("6","Energy Minimization","gmx mdrun"),
+        ("7","NVT Equilibration","300K, 200 ps"),
+        ("8","NPT Equilibration","1 bar, 200 ps"),
+        ("9","Production MD","50-200 ns"),
+        ("10","RMSD/RMSF","This app"),
+        ("11","H-Bond Analysis","This app"),
+        ("12","MM-PBSA","This app + gmx_MMPBSA"),
     ]
     cols = st.columns(4)
-    for i, (num, name, detail) in enumerate(steps):
-        with cols[i % 4]:
-            st.markdown(
-                f'<div class="step-card">'
-                f'<span class="step-number">{num}</span>'
-                f'<b>{name}</b><br>'
-                f'<small style="color:#6b7280;">{detail}</small>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-
+    for i,(num,name,detail) in enumerate(steps):
+        with cols[i%4]:
+            highlight = "background:#eff6ff;border:2px solid #0077b6;" if num in ("1","10","11","12") else ""
+            st.markdown(f'<div class="step-card" style="{highlight}"><span class="step-number">{num}</span><b>{name}</b><br><small style="color:#6b7280;">{detail}</small></div>', unsafe_allow_html=True)
+    st.caption("🔵 Blue highlighted steps = handled by this app")
     st.markdown("---")
-    st.info("👈 **Navigate using the sidebar** to access each module. Upload your GROMACS output files (.xvg, .csv, .pdb) directly in each page.")
-
-    with st.expander("📦 Supported File Formats"):
-        df = pd.DataFrame({
-            "Page": ["RMSD/RMSF Viewer", "H-Bond Analysis", "MM-PBSA Analysis", "3D Structure Viewer"],
-            "Input Format": [".xvg / .csv / .txt", ".xvg / .csv / .txt", ".csv", ".pdb"],
-            "GROMACS Command": [
-                "gmx rms / gmx rmsf",
-                "gmx hbond -num",
-                "gmx_MMPBSA",
-                "gmx trjconv -dump",
-            ],
-        })
-        st.dataframe(df, use_container_width=True, hide_index=True)
+    st.info("👈 **Start with '🎯 Molecular Docking'** in the sidebar — upload your protein and drug molecule!")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PAGE: WORKFLOW GUIDE
 # ═══════════════════════════════════════════════════════════════════════════════
+
 def page_workflow():
     st.title("📚 Step-by-Step MD Simulation Guide")
     st.markdown("Complete GROMACS workflow for post-docking molecular dynamics simulation.")
 
-    workflow_steps = [
-        {
-            "title": "Step 1 – Prepare Docking Output",
-            "icon": "🎯",
-            "desc": "Extract the best binding pose from docking software and separate protein + ligand.",
-            "details": """
-- Export best docked pose (lowest ΔG binding energy)
-- Separate protein (**ATOM records**) and ligand (**HETATM records**)
-- Remove crystallographic waters, co-factors unless essential
-- Ensure proper protonation at physiological pH (pH 7.4)
-            """,
-            "commands": "# Separate protein and ligand from combined PDB\ngrep '^ATOM' complex.pdb > protein.pdb\ngrep '^HETATM' complex.pdb > ligand.pdb",
-            "tip": "⚠️ Verify your ligand has the correct net charge before topology generation.",
-        },
-        {
-            "title": "Step 2 – Generate Ligand Topology",
-            "icon": "⚙️",
-            "desc": "Create GROMACS-compatible force field parameters for the small molecule ligand.",
-            "details": """
-- **ACPYPE** → GAFF2 force field (AMBER-compatible, recommended)
-- **CGenFF / CHARMM-GUI** → CHARMM36 force field
-- **LigParGen** → OPLS-AA force field
-- Choose force field consistent with protein force field
-            """,
-            "commands": "# Install ACPYPE\npip install acpype\n\n# Generate GROMACS topology (GAFF2 + BCC charges)\nacpype -i ligand.pdb -c bcc -n 0\n\n# Output files created:\n# ligand_GMX.itp   → topology parameters\n# ligand_GMX.gro   → coordinates\n# ligand_GMX.top   → standalone topology",
-            "tip": "💡 If your ligand has a net charge (e.g. -1), specify with -n flag: acpype -i lig.pdb -c bcc -n -1",
-        },
-        {
-            "title": "Step 3 – Generate Protein Topology",
-            "icon": "🔬",
-            "desc": "Use pdb2gmx to assign force field parameters to the protein.",
-            "details": """
-- **Force fields**: AMBER99SB-ILDN (most popular), CHARMM36m, GROMOS96
-- **Water models**: TIP3P (AMBER), TIP4P/2005, SPC/E
-- Handle histidine (HIS) protonation: HIE, HID, or HIP
-- Fix missing heavy atoms using MODELLER or Swiss-PdbViewer
-            """,
-            "commands": "# Generate protein topology\ngmx pdb2gmx -f protein.pdb -o protein.gro -water tip3p -ff amber99sb-ildn\n\n# Files created:\n# topol.top    → master topology\n# protein.gro  → coordinates\n# posre.itp    → position restraints",
-            "tip": "⚠️ Check terminal residues and non-standard amino acids. Use -ignh to ignore existing hydrogens.",
-        },
-        {
-            "title": "Step 4 – Combine Protein + Ligand System",
-            "icon": "🔗",
-            "desc": "Merge protein and ligand GRO files and update the master topology.",
-            "details": """
-- Manually merge .gro coordinate files (or use CHARMM-GUI)
-- Update atom count in the merged .gro header
-- Add ligand `#include` to `topol.top`
-- Append ligand to `[ molecules ]` section
-            """,
-            "commands": '# In topol.top — ADD before "[ system ]":\n; Include ligand topology\n#include "ligand_GMX.itp"\n\n# In topol.top — ADD in "[ molecules ]":\n; Protein_chain_A   1\nLIG               1\n\n# Merge GRO files (update first line atom count!)\nhead -1 protein.gro\n# Update count = protein_atoms + ligand_atoms',
-            "tip": "💡 CHARMM-GUI's 'Ligand Reader & Modeler' automates steps 2–4 reliably.",
-        },
-        {
-            "title": "Step 5 – Solvation & Ionization",
-            "icon": "💧",
-            "desc": "Surround the complex with a water box and add physiological salt concentration.",
-            "details": """
-- Box type: **dodecahedron** (efficient) or cubic
-- Minimum distance from protein to box edge: **1.2 nm**
-- Add **Na⁺ / Cl⁻** to neutralize and reach 0.15 M ionic strength
-            """,
-            "commands": "# Create simulation box (dodecahedral, 1.2 nm padding)\ngmx editconf -f complex.gro -o box.gro -c -d 1.2 -bt dodecahedron\n\n# Solvate with TIP3P water\ngmx solvate -cp box.gro -cs spc216.gro -o solvated.gro -p topol.top\n\n# Add ions (neutralize + 0.15 M NaCl)\ngmx grompp -f ions.mdp -c solvated.gro -p topol.top -o ions.tpr -maxwarn 2\ngmx genion -s ions.tpr -o ionized.gro -p topol.top \\\n           -pname NA -nname CL -neutral -conc 0.15",
-            "tip": "💡 Select group 'SOL' when prompted by genion to replace water molecules with ions.",
-        },
-        {
-            "title": "Step 6 – Energy Minimization",
-            "icon": "⚡",
-            "desc": "Relax the solvated system to remove steric clashes and bad contacts.",
-            "details": """
-- Algorithm: **Steepest descent**
-- Convergence criterion: **Fmax < 1000 kJ/mol/nm**
-- Typical steps: 5000–50,000
-- Monitor potential energy (should decrease monotonically)
-            """,
-            "commands": "# Prepare EM input\ngmx grompp -f em.mdp -c ionized.gro -p topol.top -o em.tpr\n\n# Run energy minimization\ngmx mdrun -v -deffnm em\n\n# Check potential energy convergence\ngmx energy -f em.edr -o em_potential.xvg\n# → Type '10' to select Potential Energy, then '0' to quit",
-            "tip": "⚠️ If EM fails with 'Lincs Warning', check for overlapping atoms or incorrect topology.",
-        },
-        {
-            "title": "Step 7 – NVT Equilibration (Temperature)",
-            "icon": "🌡️",
-            "desc": "Equilibrate system temperature at 300 K with position restraints on heavy atoms.",
-            "details": """
-- Duration: **100–200 ps**
-- Thermostat: **V-rescale** (τ = 0.1 ps)
-- Protein & ligand heavy atoms restrained
-- Monitor: temperature should plateau at ~300 K
-            """,
-            "commands": "# Prepare NVT\ngmx grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr\n\n# Run NVT (GPU accelerated)\ngmx mdrun -v -deffnm nvt -ntmpi 1 -ntomp 4 -gpu_id 0\n\n# Check temperature equilibration\ngmx energy -f nvt.edr -o nvt_temp.xvg\n# → Select 'Temperature'",
-            "tip": "💡 Temperature should converge to 300 ± 5 K. A stable plateau indicates good equilibration.",
-        },
-        {
-            "title": "Step 8 – NPT Equilibration (Pressure)",
-            "icon": "🗜️",
-            "desc": "Equilibrate pressure at 1 bar while maintaining 300 K temperature.",
-            "details": """
-- Duration: **100–200 ps**
-- Barostat: **Berendsen** for equilibration, **Parrinello-Rahman** for production
-- Target pressure: **1 bar**
-- Monitor: density should reach ~1000 kg/m³ (water)
-            """,
-            "commands": "# Prepare NPT (continues from NVT checkpoint)\ngmx grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt \\\n           -p topol.top -o npt.tpr\n\n# Run NPT\ngmx mdrun -v -deffnm npt\n\n# Check pressure and density\ngmx energy -f npt.edr -o npt_pressure.xvg  # Select 'Pressure'\ngmx energy -f npt.edr -o npt_density.xvg   # Select 'Density'",
-            "tip": "💡 Pressure fluctuates heavily (±100 bar is normal). Focus on the average value (~1 bar).",
-        },
-        {
-            "title": "Step 9 – Production MD Run",
-            "icon": "🚀",
-            "desc": "The main simulation — no restraints, typically 50–200 ns.",
-            "details": """
-- Duration: **50 ns** (minimum), **100–200 ns** (recommended)
-- Save coordinates every **10–20 ps**
-- No position restraints
-- Remove PBC artifacts before analysis
-            """,
-            "commands": "# Prepare production MD\ngmx grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr\n\n# Run production (GPU, 8 CPU threads)\ngmx mdrun -v -deffnm md -ntmpi 1 -ntomp 8 -gpu_id 0\n\n# Continue if interrupted\ngmx mdrun -v -deffnm md -cpi md.cpt -append\n\n# Fix PBC BEFORE any analysis\ngmx trjconv -s md.tpr -f md.xtc -o md_noPBC.xtc -pbc mol -center\n# → Select 'Protein' for centering, 'System' for output",
-            "tip": "💡 Use -ntmpi 1 to avoid MPI conflicts. Adjust -ntomp to match your CPU core count.",
-        },
-        {
-            "title": "Step 10 – RMSD & RMSF Analysis",
-            "icon": "📊",
-            "desc": "Quantify structural stability (RMSD) and residue flexibility (RMSF).",
-            "details": """
-- **RMSD < 0.2–0.3 nm** = stable system
-- **RMSF peaks** = flexible loops / hinge regions
-- Analyze **protein backbone** and **ligand** separately
-- Use PBC-corrected trajectory
-            """,
-            "commands": "# Protein backbone RMSD vs time\ngmx rms -s md.tpr -f md_noPBC.xtc -o rmsd_protein.xvg -tu ns\n# → Select 'Backbone' for reference\n# → Select 'Backbone' for group\n\n# Ligand RMSD vs time\ngmx rms -s md.tpr -f md_noPBC.xtc -o rmsd_ligand.xvg -tu ns\n# → Select 'Backbone' for reference\n# → Select 'LIG' for group\n\n# Per-residue RMSF\ngmx rmsf -s md.tpr -f md_noPBC.xtc -o rmsf.xvg -res\n# → Select 'C-alpha'",
-            "tip": "💡 Upload the generated .xvg files to the RMSD/RMSF Viewer page of this app!",
-        },
-        {
-            "title": "Step 11 – H-Bond Analysis",
-            "icon": "🔗",
-            "desc": "Analyze hydrogen bonds between protein and ligand over the trajectory.",
-            "details": """
-- Average H-bonds: meaningful metric of interaction stability
-- **Occupancy > 50%** = persistent interaction
-- Map specific donor-acceptor pairs for publication
-            """,
-            "commands": "# Create custom index: protein + ligand\ngmx make_ndx -f md.tpr -o index.ndx\n# → Create group for ligand if needed\n\n# Count H-bonds over time\ngmx hbond -s md.tpr -f md_noPBC.xtc -num hbond_num.xvg -tu ns -n index.ndx\n# → Select 'Protein' (group 1)\n# → Select 'LIG' (group 2)\n\n# H-bond distance/angle distributions\ngmx hbond -s md.tpr -f md_noPBC.xtc -dist hbond_dist.xvg -ang hbond_ang.xvg",
-            "tip": "💡 Use the H-Bond Analysis page to upload hbond_num.xvg and get occupancy statistics.",
-        },
-        {
-            "title": "Step 12 – MM-PBSA Binding Free Energy",
-            "icon": "⚗️",
-            "desc": "Calculate absolute binding free energy using MM-PBSA/MM-GBSA method.",
-            "details": """
-- **ΔGbind = ΔEvdW + ΔEelec + ΔGpolar + ΔGnonpolar**
-- Tool: **gmx_MMPBSA** (AMBER interface for GROMACS)
-- Use equilibrated portion of trajectory (last 30–50%)
-- Entropy correction (TΔS) optional but important for ranking
-            """,
-            "commands": "# Install gmx_MMPBSA\nconda install -c conda-forge gmx_mmpbsa\n\n# Create receptor+ligand index groups\ngmx make_ndx -f md.tpr -o index.ndx\n\n# Run MM-PBSA\ngmx_MMPBSA -O \\\n  -i mmpbsa.in \\\n  -cs md.tpr \\\n  -ct md_noPBC.xtc \\\n  -ci index.ndx \\\n  -cg 1 13 \\\n  -cp topol.top\n\n# mmpbsa.in (PB method):\n&general\n  startframe=500, endframe=1000, interval=5,\n/\n&pb\n  istrng=0.15, inp=2,\n/",
-            "tip": "💡 Export results as CSV and upload to the MM-PBSA Analysis page of this app.",
-        },
+    steps = [
+        ("1 — Prepare Docking Output","🎯",
+         "Extract best pose, separate protein + ligand.",
+         "- Export best docked pose (lowest ΔG binding energy)\n- Separate ATOM (protein) and HETATM (ligand) records\n- Remove waters, co-factors unless essential\n- Verify protonation at pH 7.4",
+         "grep '^ATOM' complex.pdb > protein.pdb\ngrep '^HETATM' complex.pdb > ligand.pdb",
+         "⚠️ Verify ligand net charge before topology generation."),
+        ("2 — Ligand Topology","⚙️",
+         "Generate GROMACS-compatible force field for ligand.",
+         "- ACPYPE → GAFF2 (AMBER-compatible, recommended)\n- CGenFF / CHARMM-GUI → CHARMM36\n- LigParGen → OPLS-AA",
+         "pip install acpype\nacpype -i ligand.pdb -c bcc -n 0\n# Output: ligand_GMX.itp, ligand_GMX.gro, ligand_GMX.top",
+         "💡 Specify net charge: acpype -i lig.pdb -c bcc -n -1 for charged ligands."),
+        ("3 — Protein Topology","🔬",
+         "Assign force field to protein using pdb2gmx.",
+         "- Force fields: AMBER99SB-ILDN, CHARMM36m, GROMOS96\n- Water: TIP3P (AMBER), TIP4P/2005\n- Handle HIS protonation: HIE/HID/HIP",
+         "gmx pdb2gmx -f protein.pdb -o protein.gro -water tip3p -ff amber99sb-ildn\n# Creates: topol.top, protein.gro, posre.itp",
+         "⚠️ Fix missing residues with MODELLER before this step."),
+        ("4 — Combine System","🔗",
+         "Merge protein + ligand GRO files and update topology.",
+         "- Manually merge .gro coordinate files\n- Update atom count in header\n- Add ligand #include to topol.top",
+         '# In topol.top, before [ system ]:\n#include "ligand_GMX.itp"\n\n# Under [ molecules ]:\nLIG    1',
+         "💡 CHARMM-GUI automates steps 2–4 reliably for complex systems."),
+        ("5 — Solvation & Ions","💧",
+         "Add water box and physiological NaCl (0.15 M).",
+         "- Box: dodecahedron, 1.2 nm padding\n- TIP3P water model\n- Na⁺/Cl⁻ to neutralize + 0.15 M ionic strength",
+         "gmx editconf -f complex.gro -o box.gro -c -d 1.2 -bt dodecahedron\ngmx solvate -cp box.gro -cs spc216.gro -o solvated.gro -p topol.top\ngmx grompp -f ions.mdp -c solvated.gro -p topol.top -o ions.tpr\ngmx genion -s ions.tpr -o ionized.gro -p topol.top -pname NA -nname CL -neutral -conc 0.15",
+         "💡 Select 'SOL' when genion asks which group to replace."),
+        ("6 — Energy Minimization","⚡",
+         "Relax the system, remove steric clashes.",
+         "- Steepest descent algorithm\n- Converge to Fmax < 1000 kJ/mol/nm\n- Typically 5000–50000 steps",
+         "gmx grompp -f em.mdp -c ionized.gro -p topol.top -o em.tpr\ngmx mdrun -v -deffnm em\ngmx energy -f em.edr -o em_potential.xvg  # Select 'Potential'",
+         "⚠️ If EM fails: check for overlapping atoms or incorrect topology."),
+        ("7 — NVT Equilibration","🌡️",
+         "Temperature equilibration at 300 K with position restraints.",
+         "- Duration: 100–200 ps\n- Thermostat: V-rescale (τ = 0.1 ps)\n- Position restraints on heavy atoms\n- Target: 300 ± 5 K",
+         "gmx grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr\ngmx mdrun -v -deffnm nvt -ntmpi 1 -ntomp 4 -gpu_id 0\ngmx energy -f nvt.edr -o nvt_temp.xvg  # Select 'Temperature'",
+         "💡 Temperature should plateau at 300 K. Upload nvt_temp.xvg to RMSD page to verify."),
+        ("8 — NPT Equilibration","🗜️",
+         "Pressure equilibration at 1 bar.",
+         "- Duration: 100–200 ps\n- Barostat: Berendsen (equil) → Parrinello-Rahman (production)\n- Target: 1 bar, density ~1000 kg/m³",
+         "gmx grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr\ngmx mdrun -v -deffnm npt\ngmx energy -f npt.edr -o npt_density.xvg  # Select 'Density'",
+         "💡 Pressure fluctuates ±100 bar — focus on the average (~1 bar)."),
+        ("9 — Production MD","🚀",
+         "Main simulation — 50–200 ns, no restraints.",
+         "- Save coordinates every 10–20 ps\n- No position restraints\n- Fix PBC artifacts before any analysis",
+         "gmx grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr\ngmx mdrun -v -deffnm md -ntmpi 1 -ntomp 8 -gpu_id 0\n\n# Fix PBC (ALWAYS do this before analysis)\ngmx trjconv -s md.tpr -f md.xtc -o md_noPBC.xtc -pbc mol -center\n# Select: Protein (center), System (output)",
+         "💡 Use -cpi md.cpt -append to continue if interrupted."),
+        ("10 — RMSD & RMSF","📊",
+         "Quantify stability and flexibility.",
+         "- RMSD < 0.3 nm = stable\n- RMSF peaks = flexible loops\n- Analyze backbone + ligand separately",
+         "gmx rms -s md.tpr -f md_noPBC.xtc -o rmsd_protein.xvg -tu ns  # Select Backbone, Backbone\ngmx rms -s md.tpr -f md_noPBC.xtc -o rmsd_ligand.xvg -tu ns   # Select Backbone, LIG\ngmx rmsf -s md.tpr -f md_noPBC.xtc -o rmsf.xvg -res            # Select C-alpha",
+         "💡 Upload the .xvg files to the RMSD/RMSF Viewer page of this app!"),
+        ("11 — H-Bond Analysis","🔗",
+         "Persistence of protein-ligand hydrogen bonds.",
+         "- Average ≥2 H-bonds = stable interaction\n- Occupancy >50% = persistent",
+         "gmx hbond -s md.tpr -f md_noPBC.xtc -num hbond_num.xvg -tu ns\n# Select: Protein → LIG",
+         "💡 Upload hbond_num.xvg to the H-Bond Analysis page!"),
+        ("12 — MM-PBSA","⚗️",
+         "Calculate binding free energy.",
+         "- ΔGbind = ΔEvdW + ΔEelec + ΔGpolar + ΔGnonpolar\n- Use last 30–50% of trajectory\n- Tool: gmx_MMPBSA",
+         "conda install -c conda-forge gmx_mmpbsa\n\ngmx_MMPBSA -O -i mmpbsa.in -cs md.tpr -ct md_noPBC.xtc \\\n           -ci index.ndx -cg 1 13 -cp topol.top",
+         "💡 Export CSV and upload to the MM-PBSA page!"),
     ]
 
-    for step in workflow_steps:
-        with st.expander(f"{step['icon']}  {step['title']}", expanded=False):
-            col_left, col_right = st.columns([1, 1], gap="large")
-            with col_left:
-                st.markdown(f"**{step['desc']}**")
-                st.markdown(step["details"])
-                st.markdown(f'<div class="tip-box">{step["tip"]}</div>', unsafe_allow_html=True)
-            with col_right:
-                st.markdown("**Commands:**")
-                st.code(step["commands"], language="bash")
+    for num, icon, desc, details, cmds, tip in steps:
+        with st.expander(f"{icon}  Step {num}", expanded=False):
+            c1,c2 = st.columns([1,1], gap="large")
+            with c1:
+                st.markdown(f"**{desc}**")
+                st.markdown(details)
+                st.markdown(f'<div class="tip-box">{tip}</div>', unsafe_allow_html=True)
+            with c2:
+                st.code(cmds, language="bash")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PAGE: RMSD / RMSF
 # ═══════════════════════════════════════════════════════════════════════════════
+
 def page_rmsd_rmsf():
     st.title("📊 RMSD / RMSF Viewer")
-    st.markdown("Upload GROMACS `.xvg` output files to visualize structural stability and per-residue flexibility.")
-
     tab1, tab2 = st.tabs(["📈 RMSD — Stability", "📉 RMSF — Flexibility"])
 
-    # ── RMSD ──
     with tab1:
         st.markdown("### Root Mean Square Deviation (RMSD)")
-        st.markdown('<div class="info-box">📌 RMSD measures deviation from the reference structure. A stable plateau (< 0.3 nm) indicates a well-equilibrated complex.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-box">📌 Stable RMSD plateau < 0.3 nm = well-equilibrated complex.</div>', unsafe_allow_html=True)
+        up1 = st.file_uploader("Upload RMSD .xvg / .csv", type=["xvg","txt","csv"], key="r1")
+        up2 = st.file_uploader("Optional: 2nd RMSD file (e.g. ligand vs protein)", type=["xvg","txt","csv"], key="r2")
+        smooth = st.slider("Smoothing window", 1, 100, 20)
+        show_raw = st.checkbox("Show raw data", value=True)
 
-        col_up, col_opt = st.columns([2, 1])
-        with col_up:
-            uploaded_rmsd = st.file_uploader("Upload RMSD .xvg / .csv file", type=["xvg", "txt", "csv"], key="rmsd_up")
-        with col_opt:
-            smooth = st.slider("Smoothing window", 1, 100, 20, key="rmsd_smooth")
-            show_raw = st.checkbox("Show raw data", value=True, key="rmsd_raw")
-
-        # Multi-file comparison
-        uploaded_rmsd2 = st.file_uploader("Optional: Upload a 2nd RMSD file to compare (e.g. ligand vs protein)", type=["xvg","txt","csv"], key="rmsd_up2")
-
-        if uploaded_rmsd:
-            df, x_lbl, y_lbl, title, _ = parse_xvg(uploaded_rmsd)
+        if up1:
+            df,xl,yl,title,_ = parse_xvg(up1)
             if df is not None and not df.empty:
-                x, y = df.iloc[:, 0], df.iloc[:, 1]
-                y_sm = pd.Series(y.values).rolling(smooth, center=True, min_periods=1).mean()
-
+                x,y = df.iloc[:,0], df.iloc[:,1]
+                ys = pd.Series(y.values).rolling(smooth, center=True, min_periods=1).mean()
                 fig = go.Figure()
                 if show_raw:
-                    fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name="Raw",
-                                             line=dict(color="#93c5fd", width=1), opacity=0.6))
-                fig.add_trace(go.Scatter(x=x, y=y_sm, mode="lines", name="Smoothed (File 1)",
-                                         line=dict(color="#1d4ed8", width=2.5)))
-
-                if uploaded_rmsd2:
-                    df2, x2, y2_lbl, t2, _ = parse_xvg(uploaded_rmsd2)
+                    fig.add_trace(go.Scatter(x=x,y=y,mode="lines",name="Raw",line=dict(color="#93c5fd",width=1),opacity=0.5))
+                fig.add_trace(go.Scatter(x=x,y=ys,mode="lines",name="Smoothed",line=dict(color="#1d4ed8",width=2.5)))
+                if up2:
+                    df2,_,_,_,_ = parse_xvg(up2)
                     if df2 is not None and not df2.empty:
-                        y2 = df2.iloc[:, 1]
-                        y2_sm = pd.Series(y2.values).rolling(smooth, center=True, min_periods=1).mean()
+                        y2 = df2.iloc[:,1]
+                        y2s = pd.Series(y2.values).rolling(smooth,center=True,min_periods=1).mean()
                         if show_raw:
-                            fig.add_trace(go.Scatter(x=df2.iloc[:,0], y=y2, mode="lines", name="Raw (File 2)",
-                                                     line=dict(color="#fca5a5", width=1), opacity=0.5))
-                        fig.add_trace(go.Scatter(x=df2.iloc[:,0], y=y2_sm, mode="lines", name="Smoothed (File 2)",
-                                                 line=dict(color="#dc2626", width=2.5)))
-
-                fig.update_layout(
-                    title=title or "RMSD vs Time",
-                    xaxis_title=x_lbl,
-                    yaxis_title=y_lbl if y_lbl != "Value" else "RMSD (nm)",
-                    height=430,
-                    template="plotly_white",
-                    hovermode="x unified",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                )
+                            fig.add_trace(go.Scatter(x=df2.iloc[:,0],y=y2,mode="lines",name="Raw 2",line=dict(color="#fca5a5",width=1),opacity=0.4))
+                        fig.add_trace(go.Scatter(x=df2.iloc[:,0],y=y2s,mode="lines",name="Smoothed 2",line=dict(color="#dc2626",width=2.5)))
+                fig.update_layout(title=title or "RMSD vs Time",xaxis_title=xl,yaxis_title=yl,height=420,template="plotly_white",hovermode="x unified")
                 st.plotly_chart(fig, use_container_width=True)
-
-                # Stats row
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Mean RMSD", f"{y.mean():.3f} nm")
-                c2.metric("Max RMSD", f"{y.max():.3f} nm")
-                c3.metric("Std Dev", f"{y.std():.3f} nm")
-                c4.metric("Final RMSD", f"{y.iloc[-1]:.3f} nm")
-
-                mean_v = y.mean()
-                if mean_v < 0.25:
-                    st.success("✅ Excellent stability — complex is tightly bound and well-equilibrated.")
-                elif mean_v < 0.40:
-                    st.info("ℹ️ Moderate RMSD — some flexibility but generally stable.")
-                elif mean_v < 0.60:
-                    st.warning("⚠️ High RMSD — consider longer equilibration or check binding pose.")
-                else:
-                    st.error("❌ Very high RMSD — ligand may have dissociated. Review trajectory in VMD/PyMOL.")
-
-                with st.expander("📋 View raw data table"):
-                    st.dataframe(df.rename(columns={0: x_lbl, 1: y_lbl}).head(500), use_container_width=True)
-            else:
-                st.error("Could not parse file. Ensure it is a valid GROMACS .xvg or two-column CSV.")
+                c1,c2,c3,c4 = st.columns(4)
+                c1.metric("Mean",f"{y.mean():.3f} nm"); c2.metric("Max",f"{y.max():.3f} nm")
+                c3.metric("Std Dev",f"{y.std():.3f} nm"); c4.metric("Final",f"{y.iloc[-1]:.3f} nm")
+                mv = y.mean()
+                if mv<0.25: st.success("✅ Excellent stability — well-equilibrated complex.")
+                elif mv<0.40: st.info("ℹ️ Moderate RMSD — generally stable.")
+                elif mv<0.60: st.warning("⚠️ High RMSD — extend equilibration or check binding pose.")
+                else: st.error("❌ Very high RMSD — ligand may have dissociated. Inspect in VMD.")
+            else: st.error("Could not parse file.")
         else:
-            st.markdown("#### 📎 Expected file format")
-            st.code("# Time (ns)  RMSD (nm)\n  0.000       0.000\n  0.010       0.087\n  0.020       0.112\n  0.030       0.145\n  ...", language="text")
+            st.code("# GROMACS command:\ngmx rms -s md.tpr -f md_noPBC.xtc -o rmsd.xvg -tu ns\n# Select: Backbone (reference), Backbone or LIG (group)", language="bash")
 
-    # ── RMSF ──
     with tab2:
         st.markdown("### Root Mean Square Fluctuation (RMSF)")
-        st.markdown('<div class="info-box">📌 RMSF measures per-residue flexibility. Peaks identify loop regions, binding site flexibility, and disordered segments.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-box">📌 Peaks = flexible regions (loops, hinges). Binding site residues should have low RMSF.</div>', unsafe_allow_html=True)
+        up_rmsf = st.file_uploader("Upload RMSF .xvg / .csv", type=["xvg","txt","csv"], key="rmsf")
+        thr = st.slider("Highlight threshold (nm)", 0.05, 1.0, 0.20, step=0.05)
+        ctype = st.radio("Chart type", ["Bar","Line"], horizontal=True)
 
-        uploaded_rmsf = st.file_uploader("Upload RMSF .xvg / .csv file", type=["xvg", "txt", "csv"], key="rmsf_up")
-
-        col_opt1, col_opt2 = st.columns(2)
-        with col_opt1:
-            threshold = st.slider("Highlight threshold (nm)", 0.05, 1.0, 0.20, step=0.05)
-        with col_opt2:
-            chart_type = st.radio("Chart type", ["Bar", "Line"], horizontal=True)
-
-        if uploaded_rmsf:
-            df, x_lbl, y_lbl, title, _ = parse_xvg(uploaded_rmsf)
+        if up_rmsf:
+            df,xl,yl,title,_ = parse_xvg(up_rmsf)
             if df is not None and not df.empty:
-                x, y = df.iloc[:, 0], df.iloc[:, 1]
-                colors = ["#dc2626" if v > threshold else "#0077b6" for v in y]
-
+                x,y = df.iloc[:,0], df.iloc[:,1]
+                colors = ["#dc2626" if v>thr else "#0077b6" for v in y]
                 fig = go.Figure()
-                if chart_type == "Bar":
-                    fig.add_trace(go.Bar(x=x, y=y, marker_color=colors, name="RMSF"))
+                if ctype == "Bar":
+                    fig.add_trace(go.Bar(x=x,y=y,marker_color=colors))
                 else:
-                    fig.add_trace(go.Scatter(x=x, y=y, mode="lines", fill="tozeroy",
-                                             line=dict(color="#0077b6", width=1.5)))
-                    high_mask = y > threshold
-                    fig.add_trace(go.Scatter(x=x[high_mask], y=y[high_mask], mode="markers",
-                                             marker=dict(color="#dc2626", size=5), name="High flexibility"))
-
-                fig.add_hline(y=threshold, line_dash="dash", line_color="#dc2626",
-                              annotation_text=f"Threshold {threshold} nm", annotation_position="top right")
-                fig.update_layout(
-                    title=title or "Per-Residue RMSF",
-                    xaxis_title=x_lbl if x_lbl != "Value" else "Residue Number",
-                    yaxis_title=y_lbl if y_lbl != "Value" else "RMSF (nm)",
-                    height=430,
-                    template="plotly_white",
-                )
+                    fig.add_trace(go.Scatter(x=x,y=y,mode="lines",fill="tozeroy",line=dict(color="#0077b6",width=1.5)))
+                    hm = y>thr
+                    fig.add_trace(go.Scatter(x=x[hm],y=y[hm],mode="markers",marker=dict(color="#dc2626",size=5),name="High flex"))
+                fig.add_hline(y=thr,line_dash="dash",line_color="#dc2626",annotation_text=f"Threshold {thr} nm")
+                fig.update_layout(title=title or "RMSF per Residue",xaxis_title=xl,yaxis_title=yl,height=420,template="plotly_white")
                 st.plotly_chart(fig, use_container_width=True)
-
-                high_flex = df[df.iloc[:, 1] > threshold]
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Mean RMSF", f"{y.mean():.3f} nm")
-                c2.metric("Max RMSF", f"{y.max():.3f} nm")
-                c3.metric("Flexible residues", f"{len(high_flex)} (>{threshold} nm)")
-
-                if not high_flex.empty:
-                    with st.expander(f"⚡ {len(high_flex)} flexible residues (RMSF > {threshold} nm)"):
-                        st.dataframe(
-                            high_flex.rename(columns={0: "Residue", 1: "RMSF (nm)"}).sort_values("RMSF (nm)", ascending=False),
-                            use_container_width=True,
-                        )
-            else:
-                st.error("Could not parse file.")
+                hi = df[df.iloc[:,1]>thr]
+                c1,c2,c3 = st.columns(3)
+                c1.metric("Mean RMSF",f"{y.mean():.3f} nm"); c2.metric("Max RMSF",f"{y.max():.3f} nm")
+                c3.metric("Flexible residues",f"{len(hi)}")
+                if not hi.empty:
+                    with st.expander(f"⚡ {len(hi)} high-flexibility residues"):
+                        st.dataframe(hi.rename(columns={0:"Residue",1:"RMSF (nm)"}).sort_values("RMSF (nm)",ascending=False))
         else:
-            st.markdown("#### 📎 How to generate RMSF file:")
             st.code("gmx rmsf -s md.tpr -f md_noPBC.xtc -o rmsf.xvg -res\n# Select: C-alpha", language="bash")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PAGE: MM-PBSA
 # ═══════════════════════════════════════════════════════════════════════════════
+
 def page_mmpbsa():
     st.title("⚗️ MM-PBSA Binding Energy Analysis")
+    st.markdown("> **ΔG_bind = ΔEvdW + ΔEelec + ΔGpolar + ΔGnonpolar** (more negative = stronger binding)")
 
-    st.markdown("""
-    **MM-PBSA binding free energy equation:**
-
-    > **ΔG_bind = ΔE_vdW + ΔE_elec + ΔG_polar solvation + ΔG_nonpolar solvation**
-
-    More negative ΔG_bind = stronger, more favorable binding.
-    """)
-
-    tab1, tab2 = st.tabs(["📁 Upload Results", "✏️ Manual Entry"])
-
-    sample_df = pd.DataFrame({
-        "Component": ["ΔEvdW", "ΔEelec", "ΔGpolar", "ΔGnonpolar", "ΔGbind"],
-        "Mean (kcal/mol)": [-32.45, -18.72, 24.31, -3.82, -30.68],
-        "Std Dev": [2.10, 3.40, 1.80, 0.40, 2.90],
-    })
+    sample = pd.DataFrame({"Component":["ΔEvdW","ΔEelec","ΔGpolar","ΔGnonpolar","ΔGbind"],
+                           "Mean (kcal/mol)":[-32.45,-18.72,24.31,-3.82,-30.68],"Std Dev":[2.1,3.4,1.8,0.4,2.9]})
+    tab1,tab2 = st.tabs(["📁 Upload","✏️ Manual Entry"])
 
     with tab1:
-        st.markdown("**Expected CSV format:**")
-        st.dataframe(sample_df, use_container_width=True, hide_index=True)
-        uploaded = st.file_uploader("Upload MM-PBSA results (.csv)", type=["csv", "txt"])
-
-        if uploaded:
-            try:
-                df = pd.read_csv(uploaded)
-                st.success("✅ File loaded successfully!")
-                st.dataframe(df, use_container_width=True, hide_index=True)
-                if "Component" in df.columns and "Mean (kcal/mol)" in df.columns:
-                    _render_mmpbsa(df)
-                else:
-                    st.warning("Please ensure columns are named 'Component', 'Mean (kcal/mol)', 'Std Dev'.")
-            except Exception as e:
-                st.error(f"Failed to parse file: {e}")
+        st.dataframe(sample, use_container_width=True, hide_index=True)
+        up = st.file_uploader("Upload MM-PBSA .csv", type=["csv","txt"])
+        if up:
+            df = pd.read_csv(up)
+            st.success("Loaded!"); st.dataframe(df, hide_index=True)
+            if "Component" in df.columns and "Mean (kcal/mol)" in df.columns:
+                _render_mmpbsa(df)
         else:
-            if st.button("📊 Use sample data"):
-                _render_mmpbsa(sample_df)
+            if st.button("Use sample data"): _render_mmpbsa(sample)
 
     with tab2:
-        st.markdown("### Enter values from your MM-PBSA output")
-        c1, c2 = st.columns(2)
+        c1,c2 = st.columns(2)
         with c1:
-            vdw = st.number_input("ΔEvdW (kcal/mol)", value=-32.45, step=0.01)
-            elec = st.number_input("ΔEelec (kcal/mol)", value=-18.72, step=0.01)
+            vdw = st.number_input("ΔEvdW",value=-32.45,step=0.01)
+            elec = st.number_input("ΔEelec",value=-18.72,step=0.01)
         with c2:
-            polar = st.number_input("ΔGpolar (kcal/mol)", value=24.31, step=0.01)
-            nonpolar = st.number_input("ΔGnonpolar (kcal/mol)", value=-3.82, step=0.01)
-
-        total = vdw + elec + polar + nonpolar
-        delta_color = "normal" if total < 0 else "inverse"
-        st.metric("Calculated ΔGbind", f"{total:.2f} kcal/mol",
-                  delta="Favorable binding" if total < 0 else "Unfavorable binding",
-                  delta_color=delta_color)
-
-        if st.button("Generate Charts", type="primary"):
-            manual_df = pd.DataFrame({
-                "Component": ["ΔEvdW", "ΔEelec", "ΔGpolar", "ΔGnonpolar", "ΔGbind"],
-                "Mean (kcal/mol)": [vdw, elec, polar, nonpolar, total],
-                "Std Dev": [0.0, 0.0, 0.0, 0.0, 0.0],
-            })
-            _render_mmpbsa(manual_df)
-
+            polar = st.number_input("ΔGpolar",value=24.31,step=0.01)
+            nonpolar = st.number_input("ΔGnonpolar",value=-3.82,step=0.01)
+        total = vdw+elec+polar+nonpolar
+        st.metric("ΔGbind",f"{total:.2f} kcal/mol",delta="Favorable" if total<0 else "Unfavorable",delta_color="normal" if total<0 else "inverse")
+        if st.button("Generate Charts",type="primary"):
+            _render_mmpbsa(pd.DataFrame({"Component":["ΔEvdW","ΔEelec","ΔGpolar","ΔGnonpolar","ΔGbind"],
+                                          "Mean (kcal/mol)":[vdw,elec,polar,nonpolar,total],"Std Dev":[0,0,0,0,0]}))
 
 def _render_mmpbsa(df):
-    comp_df = df[df["Component"] != "ΔGbind"].copy()
-    total_row = df[df["Component"] == "ΔGbind"]
-
-    colors = ["#16a34a" if v < 0 else "#dc2626" for v in comp_df["Mean (kcal/mol)"]]
-
-    fig = make_subplots(rows=1, cols=2, subplot_titles=["Energy Components", "Contribution Breakdown"])
-
-    # Bar chart
-    error_y = comp_df["Std Dev"].tolist() if "Std Dev" in comp_df.columns else None
-    fig.add_trace(
-        go.Bar(x=comp_df["Component"], y=comp_df["Mean (kcal/mol)"],
-               marker_color=colors, name="Energy",
-               error_y=dict(type="data", array=error_y, visible=True) if error_y else None),
-        row=1, col=1,
-    )
-    fig.add_hline(y=0, line_color="black", line_width=1, row=1, col=1)
-
-    # Pie chart
-    fig.add_trace(
-        go.Pie(labels=comp_df["Component"],
-               values=comp_df["Mean (kcal/mol)"].abs(),
-               hole=0.4,
-               marker_colors=["#1d4ed8","#7c3aed","#dc2626","#ea580c"],
-               textinfo="label+percent",
-               showlegend=False),
-        row=1, col=2,
-    )
-
-    fig.update_xaxes(title_text="Component", row=1, col=1)
-    fig.update_yaxes(title_text="Energy (kcal/mol)", row=1, col=1)
-    fig.update_layout(height=420, template="plotly_white", showlegend=False)
+    comp = df[df["Component"]!="ΔGbind"].copy()
+    colors = ["#16a34a" if v<0 else "#dc2626" for v in comp["Mean (kcal/mol)"]]
+    fig = make_subplots(rows=1,cols=2,subplot_titles=["Energy Components","Contribution (%)"])
+    fig.add_trace(go.Bar(x=comp["Component"],y=comp["Mean (kcal/mol)"],marker_color=colors,
+                         error_y=dict(type="data",array=comp["Std Dev"].tolist(),visible=True) if "Std Dev" in comp.columns else None),row=1,col=1)
+    fig.add_hline(y=0,line_color="black",line_width=1,row=1,col=1)
+    fig.add_trace(go.Pie(labels=comp["Component"],values=comp["Mean (kcal/mol)"].abs(),hole=0.4,
+                         marker_colors=["#1d4ed8","#7c3aed","#dc2626","#ea580c"],showlegend=False),row=1,col=2)
+    fig.update_layout(height=400,template="plotly_white",showlegend=False)
     st.plotly_chart(fig, use_container_width=True)
-
-    if not total_row.empty:
-        gbind = total_row["Mean (kcal/mol)"].values[0]
-        if gbind < -20:
-            st.success(f"✅ **Strong binding**: ΔGbind = {gbind:.2f} kcal/mol — potent inhibitor candidate.")
-        elif gbind < -10:
-            st.info(f"ℹ️ **Moderate binding**: ΔGbind = {gbind:.2f} kcal/mol — promising lead compound.")
-        elif gbind < 0:
-            st.warning(f"⚠️ **Weak binding**: ΔGbind = {gbind:.2f} kcal/mol — may need structural optimization.")
-        else:
-            st.error(f"❌ **Unfavorable binding**: ΔGbind = {gbind:.2f} kcal/mol — consider redesigning ligand.")
-
-    # Interpretation table
-    with st.expander("📖 Component Interpretation Guide"):
-        guide = pd.DataFrame({
-            "Component": ["ΔEvdW", "ΔEelec", "ΔGpolar", "ΔGnonpolar", "ΔGbind"],
-            "Favorable?": ["Negative (−)", "Negative (−)", "Positive (+) destabilizes", "Negative (−)", "Negative (−)"],
-            "Physical Meaning": [
-                "van der Waals contacts (hydrophobic packing)",
-                "Electrostatic interactions (H-bonds, salt bridges)",
-                "Cost of desolvating polar groups",
-                "Hydrophobic burial / SASA-based term",
-                "Net binding free energy",
-            ],
-        })
-        st.dataframe(guide, use_container_width=True, hide_index=True)
+    tr = df[df["Component"]=="ΔGbind"]
+    if not tr.empty:
+        g = tr["Mean (kcal/mol)"].values[0]
+        if g<-20: st.success(f"✅ Strong binding: {g:.2f} kcal/mol")
+        elif g<-10: st.info(f"ℹ️ Moderate binding: {g:.2f} kcal/mol")
+        elif g<0: st.warning(f"⚠️ Weak binding: {g:.2f} kcal/mol")
+        else: st.error(f"❌ Unfavorable binding: {g:.2f} kcal/mol")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PAGE: 3D STRUCTURE VIEWER
+# PAGE: 3D VIEWER
 # ═══════════════════════════════════════════════════════════════════════════════
+
 def page_structure_viewer():
-    st.title("🔬 3D Protein-Ligand Structure Viewer")
-    st.markdown("Upload a PDB file to explore your complex interactively using **3Dmol.js**.")
-
-    col_up, col_opts = st.columns([2, 1])
-    with col_up:
-        uploaded_pdb = st.file_uploader("Upload PDB file", type=["pdb"])
-    with col_opts:
-        prot_style = st.selectbox("Protein style", ["cartoon", "stick", "sphere", "surface"])
-        lig_style = st.selectbox("Ligand style", ["stick", "sphere", "ballAndStick"])
-        bg_color = st.selectbox("Background", ["0x1a1a2e", "0xffffff", "0x000000", "0xf0f9ff"])
-        color_scheme = st.selectbox("Protein color", ["spectrum", "chain", "ss", "residue"])
-        show_water = st.checkbox("Show water molecules", value=False)
-
-    if uploaded_pdb:
-        pdb_str = uploaded_pdb.read().decode("utf-8", errors="ignore")
-        pdb_escaped = pdb_str.replace("`", "\\`").replace("\\", "\\\\")
-
-        water_js = "" if show_water else "viewer.setStyle({resn:'HOH'}, {sphere:{radius:0.2, color:'cyan'}});"
-
-        html_3d = f"""<!DOCTYPE html><html><head>
+    st.title("🔬 3D Protein-Ligand Viewer")
+    col1,col2 = st.columns([2,1])
+    with col1:
+        up = st.file_uploader("Upload PDB file", type=["pdb"])
+    with col2:
+        pstyle = st.selectbox("Protein",["cartoon","stick","sphere","surface"])
+        lstyle = st.selectbox("Ligand",["stick","sphere","ballAndStick"])
+        bg = st.selectbox("Background",["0x1a1a2e","0xffffff","0x000000"])
+        cscheme = st.selectbox("Color",["spectrum","chain","ss","residue"])
+    if up:
+        pdb = up.read().decode("utf-8",errors="ignore")
+        esc = pdb.replace("`","\\`").replace("\\","\\\\")
+        html = f"""<!DOCTYPE html><html><head>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
 <script src="https://3dmol.org/build/3Dmol-min.js"></script>
-<style>
-  body{{margin:0;background:{bg_color};overflow:hidden;}}
-  #glv{{width:100%;height:520px;position:relative;}}
-  #info{{position:absolute;bottom:10px;left:10px;background:rgba(0,0,0,0.6);
-         color:white;padding:6px 12px;border-radius:6px;font-family:monospace;font-size:12px;}}
-</style></head><body>
-<div id="glv"></div>
-<div id="info">Left-click drag: rotate | Scroll: zoom | Right-click drag: translate</div>
-<script>
-var v = $3Dmol.createViewer('glv', {{backgroundColor:'{bg_color}'}});
-var pdb = `{pdb_escaped}`;
-v.addModel(pdb,'pdb');
-v.setStyle({{}},{{{prot_style}:{{color:'{color_scheme}'}}}});
-v.setStyle({{hetflag:true}},{{{lig_style}:{{}}}});
-v.setStyle({{hetflag:true,resn:'HOH'}},{{"sphere":{{"radius":0.15}}}});
-{"v.removeStyle({resn:'HOH'});" if not show_water else ""}
-v.addSurface($3Dmol.SurfaceType.VDW,{{opacity:0.0}},{{}});
-v.zoomTo({{hetflag:true}});
-v.render();
-v.spin(false);
+<style>body{{margin:0;background:{bg};}}#v{{width:100%;height:520px;}}</style></head><body>
+<div id="v"></div><script>
+var v=$3Dmol.createViewer("v",{{backgroundColor:"{bg}"}});
+v.addModel(`{esc}`,"pdb");
+v.setStyle({{}},{{{pstyle}:{{color:"{cscheme}"}}}});
+v.setStyle({{hetflag:true}},{{{lstyle}:{{}}}});
+v.setStyle({{hetflag:true,resn:"HOH"}},{{sphere:{{radius:0.15}}}});
+v.zoomTo();v.render();
 </script></body></html>"""
-
-        components.html(html_3d, height=530, scrolling=False)
-
-        # Metadata
-        lines = pdb_str.split("\n")
+        components.html(html, height=540)
+        lines = pdb.split("\n")
         atoms = [l for l in lines if l.startswith("ATOM")]
-        hetatms = [l for l in lines if l.startswith("HETATM") and "HOH" not in l]
-        waters = [l for l in lines if l.startswith("HETATM") and "HOH" in l]
-        residues = len({l[17:26] for l in atoms if len(l) > 26})
-        lig_names = list({l[17:20].strip() for l in hetatms})
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Protein Atoms", len(atoms))
-        c2.metric("Protein Residues", residues)
-        c3.metric("Ligand Atoms", len(hetatms))
-        c4.metric("Water Molecules", len(waters))
-
-        if lig_names:
-            st.markdown(f"**Ligand(s) detected:** {', '.join(lig_names)}")
+        hets  = [l for l in lines if l.startswith("HETATM") and "HOH" not in l]
+        c1,c2,c3 = st.columns(3)
+        c1.metric("Protein Atoms",len(atoms)); c2.metric("Ligand Atoms",len(hets))
+        c3.metric("Residues",len({l[17:26] for l in atoms if len(l)>26}))
     else:
-        st.info("👆 Upload a PDB file to start visualization")
-        with st.expander("💡 How to extract a frame from your MD trajectory"):
-            st.code("# Extract the last frame\ngmx trjconv -s md.tpr -f md_noPBC.xtc -o last_frame.pdb -dump 100000\n# → Select 'System'\n\n# Extract frame at specific time (e.g. 50 ns)\ngmx trjconv -s md.tpr -f md_noPBC.xtc -o frame_50ns.pdb -dump 50000\n\n# Extract docked pose from AutoDock Vina\n# Just open .pdbqt in Chimera and save as .pdb", language="bash")
+        st.info("Upload a PDB file to visualize")
+        st.code("gmx trjconv -s md.tpr -f md_noPBC.xtc -o last_frame.pdb -dump 100000", language="bash")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PAGE: H-BOND ANALYSIS
+# PAGE: H-BOND
 # ═══════════════════════════════════════════════════════════════════════════════
+
 def page_hbond():
     st.title("🔗 Hydrogen Bond Analysis")
-    st.markdown("Analyze the number and persistence of H-bonds between protein and ligand.")
-
-    tab1, tab2 = st.tabs(["📈 H-Bond Count over Time", "📋 Interaction Occupancy Table"])
+    tab1,tab2 = st.tabs(["📈 H-Bond Count vs Time","📋 Interaction Occupancy"])
 
     with tab1:
-        st.markdown('<div class="info-box">📌 An average of ≥2 H-bonds throughout the simulation indicates strong, stable interactions.</div>', unsafe_allow_html=True)
-        uploaded_hb = st.file_uploader("Upload H-bond count .xvg / .csv", type=["xvg", "txt", "csv"])
-
-        if uploaded_hb:
-            df, x_lbl, y_lbl, title, _ = parse_xvg(uploaded_hb)
+        st.markdown('<div class="info-box">📌 Average ≥2 H-bonds = strong stable interaction.</div>', unsafe_allow_html=True)
+        up = st.file_uploader("Upload H-bond .xvg / .csv", type=["xvg","txt","csv"])
+        if up:
+            df,xl,yl,title,_ = parse_xvg(up)
             if df is not None and not df.empty:
-                x, y = df.iloc[:, 0], df.iloc[:, 1].astype(float)
-
-                fig = make_subplots(
-                    rows=2, cols=1, row_heights=[0.68, 0.32],
-                    subplot_titles=["H-Bonds vs Time", "Frequency Distribution"],
-                    vertical_spacing=0.12,
-                )
-
-                mean_val = y.mean()
-                fig.add_trace(go.Scatter(x=x, y=y, mode="lines", fill="tozeroy",
-                                         line=dict(color="#0891b2", width=1.2), fillcolor="rgba(8,145,178,0.15)",
-                                         name="H-bond count"), row=1, col=1)
-                fig.add_hline(y=mean_val, line_dash="dash", line_color="#f59e0b",
-                              annotation_text=f"Mean: {mean_val:.1f}", row=1, col=1)
-
-                fig.add_trace(go.Histogram(x=y, nbinsx=int(y.max())+1,
-                                            marker_color="#0891b2", name="Distribution"), row=2, col=1)
-
-                fig.update_xaxes(title_text=x_lbl if x_lbl != "X" else "Time (ns)", row=1, col=1)
-                fig.update_xaxes(title_text="H-Bond Count", row=2, col=1)
-                fig.update_yaxes(title_text="H-Bond Count", row=1, col=1)
-                fig.update_yaxes(title_text="Frequency", row=2, col=1)
-                fig.update_layout(height=560, template="plotly_white", showlegend=False)
+                x,y = df.iloc[:,0], df.iloc[:,1].astype(float)
+                fig = make_subplots(rows=2,cols=1,row_heights=[0.68,0.32],
+                                    subplot_titles=["H-Bonds vs Time","Frequency Distribution"],vertical_spacing=0.12)
+                mv = y.mean()
+                fig.add_trace(go.Scatter(x=x,y=y,mode="lines",fill="tozeroy",line=dict(color="#0891b2",width=1.2),fillcolor="rgba(8,145,178,.15)"),row=1,col=1)
+                fig.add_hline(y=mv,line_dash="dash",line_color="#f59e0b",annotation_text=f"Mean:{mv:.1f}",row=1,col=1)
+                fig.add_trace(go.Histogram(x=y,nbinsx=max(int(y.max())+1,5),marker_color="#0891b2"),row=2,col=1)
+                fig.update_layout(height=540,template="plotly_white",showlegend=False)
                 st.plotly_chart(fig, use_container_width=True)
-
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Average H-bonds", f"{mean_val:.2f}")
-                c2.metric("Max H-bonds", f"{int(y.max())}")
-                c3.metric("≥1 H-bond (%)", f"{(y >= 1).mean()*100:.1f}%")
-                c4.metric("≥2 H-bonds (%)", f"{(y >= 2).mean()*100:.1f}%")
-
-                if mean_val >= 2.5:
-                    st.success("✅ Very strong H-bond network — ligand is tightly anchored in binding site.")
-                elif mean_val >= 1.5:
-                    st.success("✅ Good H-bond interactions — stable complex throughout simulation.")
-                elif mean_val >= 0.5:
-                    st.info("ℹ️ Moderate H-bonds — binding may be primarily hydrophobic-driven.")
-                else:
-                    st.warning("⚠️ Minimal H-bonds — check if ligand remained bound. Inspect RMSD.")
-            else:
-                st.error("Could not parse file.")
+                c1,c2,c3,c4 = st.columns(4)
+                c1.metric("Average",f"{mv:.2f}"); c2.metric("Max",f"{int(y.max())}")
+                c3.metric("≥1 H-bond",f"{(y>=1).mean()*100:.1f}%"); c4.metric("≥2 H-bonds",f"{(y>=2).mean()*100:.1f}%")
+                if mv>=2.5: st.success("✅ Very strong H-bond network.")
+                elif mv>=1.5: st.success("✅ Good H-bond interactions.")
+                elif mv>=0.5: st.info("ℹ️ Moderate H-bonds — binding likely hydrophobic-driven.")
+                else: st.warning("⚠️ Minimal H-bonds — check if ligand stayed bound.")
         else:
-            st.code("# Generate H-bond count .xvg\ngmx hbond -s md.tpr -f md_noPBC.xtc -num hbond_num.xvg -tu ns\n# → Select 'Protein' for group 1\n# → Select 'LIG' for group 2", language="bash")
+            st.code("gmx hbond -s md.tpr -f md_noPBC.xtc -num hbond_num.xvg -tu ns\n# Select: Protein → LIG", language="bash")
 
     with tab2:
-        st.markdown("### Residue-level Interaction Occupancy")
-        st.markdown("Enter key interactions identified from your trajectory analysis (e.g. from PyMOL, PLIP, or LigPlot+).")
-
-        default_data = pd.DataFrame({
-            "Residue": ["ASP101", "SER203", "HIS305", "TYR107", "LYS209", "GLU98"],
-            "Interaction Type": ["H-bond (acceptor)", "H-bond (donor)", "π-stacking", "H-bond (donor)", "Electrostatic", "H-bond (acceptor)"],
-            "Occupancy (%)": [82.4, 67.1, 45.3, 91.2, 38.7, 54.9],
-            "Avg Distance (Å)": [2.8, 3.1, 3.9, 2.7, 3.5, 2.9],
-        })
-
-        edited_df = st.data_editor(default_data, num_rows="dynamic", use_container_width=True)
-
-        if st.button("📊 Generate Occupancy Chart"):
-            color_map = {
-                "H-bond (acceptor)": "#1d4ed8",
-                "H-bond (donor)": "#0891b2",
-                "π-stacking": "#7c3aed",
-                "Electrostatic": "#dc2626",
-                "Hydrophobic": "#ea580c",
-            }
-            fig = px.bar(
-                edited_df.sort_values("Occupancy (%)", ascending=False),
-                x="Residue", y="Occupancy (%)",
-                color="Interaction Type",
-                text="Occupancy (%)",
-                title="Protein-Ligand Interaction Occupancy",
-                color_discrete_map=color_map,
-                height=420,
-            )
-            fig.add_hline(y=50, line_dash="dash", line_color="gray",
-                          annotation_text="50% occupancy threshold")
-            fig.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-            fig.update_layout(template="plotly_white", xaxis_tickangle=-30)
+        st.markdown("### Residue Interaction Occupancy")
+        df_edit = st.data_editor(pd.DataFrame({
+            "Residue":["ASP101","SER203","HIS305","TYR107","LYS209"],
+            "Interaction Type":["H-bond","H-bond","π-stacking","H-bond","Electrostatic"],
+            "Occupancy (%)": [82.4,67.1,45.3,91.2,38.7],
+            "Avg Distance (Å)":[2.8,3.1,3.9,2.7,3.5],
+        }), num_rows="dynamic", use_container_width=True)
+        if st.button("📊 Generate Chart"):
+            fig = px.bar(df_edit.sort_values("Occupancy (%)",ascending=False),x="Residue",y="Occupancy (%)",
+                         color="Interaction Type",text="Occupancy (%)",height=400,template="plotly_white")
+            fig.add_hline(y=50,line_dash="dash",line_color="gray",annotation_text="50% threshold")
+            fig.update_traces(texttemplate="%{text:.1f}%",textposition="outside")
             st.plotly_chart(fig, use_container_width=True)
 
-            persistent = edited_df[edited_df["Occupancy (%)"] >= 50]
-            if not persistent.empty:
-                st.success(f"✅ {len(persistent)} key residues show persistent interactions (≥50% occupancy): "
-                           f"{', '.join(persistent['Residue'].tolist())}")
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PAGE: GROMACS CHEATSHEET
+# PAGE: CHEATSHEET
 # ═══════════════════════════════════════════════════════════════════════════════
+
 def page_cheatsheet():
     st.title("📋 GROMACS Command Reference")
-    st.markdown("Quick-reference for all common GROMACS commands used in post-docking MD simulation.")
+    search = st.text_input("🔍 Search", placeholder="e.g. RMSD, solvate, GPU, energy...")
 
-    search = st.text_input("🔍 Search commands", placeholder="e.g. RMSD, solvate, energy, GPU...")
-
-    CHEATSHEET = {
+    SHEET = {
         "🔧 System Preparation": [
-            ("pdb2gmx", "gmx pdb2gmx -f protein.pdb -o protein.gro -water tip3p -ff amber99sb-ildn", "Generate protein topology & coordinates"),
-            ("editconf", "gmx editconf -f complex.gro -o box.gro -c -d 1.2 -bt dodecahedron", "Define simulation box (dodecahedron)"),
-            ("solvate", "gmx solvate -cp box.gro -cs spc216.gro -o solvated.gro -p topol.top", "Add TIP3P water molecules"),
-            ("genion", "gmx genion -s ions.tpr -o ionized.gro -p topol.top -pname NA -nname CL -neutral -conc 0.15", "Add NaCl ions (0.15 M physiological)"),
-            ("make_ndx", "gmx make_ndx -f md.tpr -o index.ndx", "Create custom atom index groups"),
+            ("pdb2gmx","gmx pdb2gmx -f protein.pdb -o protein.gro -water tip3p -ff amber99sb-ildn","Generate protein topology"),
+            ("editconf","gmx editconf -f complex.gro -o box.gro -c -d 1.2 -bt dodecahedron","Create simulation box"),
+            ("solvate","gmx solvate -cp box.gro -cs spc216.gro -o solvated.gro -p topol.top","Add TIP3P water"),
+            ("genion","gmx genion -s ions.tpr -o ionized.gro -p topol.top -pname NA -nname CL -neutral -conc 0.15","Add NaCl ions"),
+            ("make_ndx","gmx make_ndx -f md.tpr -o index.ndx","Create index groups"),
         ],
-        "⚡ Preprocessing & Running": [
-            ("grompp", "gmx grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr", "Compile run input file (.tpr)"),
-            ("mdrun (CPU)", "gmx mdrun -v -deffnm md -ntmpi 1 -ntomp 8", "Run on CPU (8 threads)"),
-            ("mdrun (GPU)", "gmx mdrun -v -deffnm md -ntmpi 1 -ntomp 4 -gpu_id 0", "Run with GPU acceleration"),
-            ("mdrun (continue)", "gmx mdrun -v -deffnm md -cpi md.cpt -append", "Continue from checkpoint"),
-            ("mdrun (multi-GPU)", "gmx mdrun -v -deffnm md -ntmpi 2 -ntomp 4 -gpu_id 01", "Run on 2 GPUs"),
+        "⚡ Run Simulation": [
+            ("grompp","gmx grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr","Compile TPR"),
+            ("mdrun (CPU)","gmx mdrun -v -deffnm md -ntmpi 1 -ntomp 8","Run on CPU"),
+            ("mdrun (GPU)","gmx mdrun -v -deffnm md -ntmpi 1 -ntomp 4 -gpu_id 0","Run on GPU"),
+            ("mdrun (continue)","gmx mdrun -v -deffnm md -cpi md.cpt -append","Continue from checkpoint"),
         ],
-        "🔄 Trajectory Processing": [
-            ("trjconv (fix PBC)", "gmx trjconv -s md.tpr -f md.xtc -o md_noPBC.xtc -pbc mol -center", "Remove periodic boundary artifacts"),
-            ("trjconv (center)", "gmx trjconv -s md.tpr -f md.xtc -o md_center.xtc -center -pbc nojump", "Center protein in box"),
-            ("trjconv (extract frame)", "gmx trjconv -s md.tpr -f md.xtc -o frame.pdb -dump 100000", "Extract frame at 100 ns"),
-            ("trjcat", "gmx trjcat -f run1.xtc run2.xtc -o combined.xtc -settime", "Concatenate trajectory files"),
-            ("trjconv (skip)", "gmx trjconv -s md.tpr -f md.xtc -o md_skip10.xtc -skip 10", "Reduce trajectory size (every 10th frame)"),
+        "📊 Analysis": [
+            ("rms","gmx rms -s md.tpr -f md_noPBC.xtc -o rmsd.xvg -tu ns","RMSD vs time"),
+            ("rmsf","gmx rmsf -s md.tpr -f md_noPBC.xtc -o rmsf.xvg -res","Per-residue RMSF"),
+            ("gyrate","gmx gyrate -s md.tpr -f md_noPBC.xtc -o gyration.xvg","Radius of gyration"),
+            ("hbond","gmx hbond -s md.tpr -f md_noPBC.xtc -num hbond.xvg -tu ns","H-bond count"),
+            ("sasa","gmx sasa -s md.tpr -f md_noPBC.xtc -o sasa.xvg","Solvent accessible surface area"),
+            ("trjconv","gmx trjconv -s md.tpr -f md.xtc -o md_noPBC.xtc -pbc mol -center","Fix PBC"),
+            ("trjconv (frame)","gmx trjconv -s md.tpr -f md.xtc -o frame.pdb -dump 100000","Extract frame at 100 ns"),
         ],
-        "📊 Analysis Commands": [
-            ("rms (RMSD)", "gmx rms -s md.tpr -f md_noPBC.xtc -o rmsd.xvg -tu ns", "RMSD vs time (select Backbone)"),
-            ("rmsf (RMSF)", "gmx rmsf -s md.tpr -f md_noPBC.xtc -o rmsf.xvg -res", "Per-residue RMSF"),
-            ("gyrate (Rg)", "gmx gyrate -s md.tpr -f md_noPBC.xtc -o gyration.xvg", "Radius of gyration"),
-            ("hbond", "gmx hbond -s md.tpr -f md_noPBC.xtc -num hbond.xvg -tu ns", "H-bond count (select Protein, then LIG)"),
-            ("sasa", "gmx sasa -s md.tpr -f md_noPBC.xtc -o sasa.xvg -surface Protein -output LIG", "Solvent accessible surface area"),
-            ("mindist", "gmx mindist -s md.tpr -f md_noPBC.xtc -od mindist.xvg -tu ns", "Minimum distance protein-ligand"),
-            ("angle", "gmx angle -s md.tpr -f md_noPBC.xtc -ov angle.xvg", "Dihedral angles over time"),
-        ],
-        "🌡️ Energy Extraction": [
-            ("energy (potential)", "gmx energy -f em.edr -o potential.xvg  # Select: Potential", "Potential energy (EM check)"),
-            ("energy (temperature)", "gmx energy -f nvt.edr -o temp.xvg  # Select: Temperature", "Temperature (NVT check)"),
-            ("energy (pressure)", "gmx energy -f npt.edr -o pressure.xvg  # Select: Pressure", "Pressure (NPT check)"),
-            ("energy (density)", "gmx energy -f npt.edr -o density.xvg  # Select: Density", "Density (NPT check, ~1000 kg/m³)"),
-            ("energy (LJ+Coul)", "gmx energy -f md.edr -o interaction.xvg  # Select: LJ-SR:Prot-LIG, Coul-SR:Prot-LIG", "Protein-ligand interaction energy"),
+        "🌡️ Energy": [
+            ("energy (potential)","gmx energy -f em.edr -o potential.xvg   # Select: Potential","EM potential energy"),
+            ("energy (temp)","gmx energy -f nvt.edr -o temp.xvg       # Select: Temperature","NVT temperature"),
+            ("energy (pressure)","gmx energy -f npt.edr -o pressure.xvg  # Select: Pressure","NPT pressure"),
+            ("energy (density)","gmx energy -f npt.edr -o density.xvg   # Select: Density","NPT density"),
         ],
         "⚗️ MM-PBSA": [
-            ("install", "conda install -c conda-forge gmx_mmpbsa", "Install gmx_MMPBSA"),
-            ("run MM-PBSA", "gmx_MMPBSA -O -i mmpbsa.in -cs md.tpr -ct md_noPBC.xtc -ci index.ndx -cg 1 13 -cp topol.top", "Run MM-PBSA calculation"),
-            ("run MM-GBSA", "gmx_MMPBSA -O -i mmgbsa.in -cs md.tpr -ct md_noPBC.xtc -ci index.ndx -cg 1 13 -cp topol.top", "Run MM-GBSA (faster, less accurate)"),
-            ("reanalyze", "gmx_MMPBSA_ana -p _GMXMMPBSA_info", "Reanalyze with GUI (requires Tk)"),
+            ("install","conda install -c conda-forge gmx_mmpbsa","Install gmx_MMPBSA"),
+            ("run","gmx_MMPBSA -O -i mmpbsa.in -cs md.tpr -ct md_noPBC.xtc -ci index.ndx -cg 1 13 -cp topol.top","Run MM-PBSA"),
         ],
         "🔗 Ligand Tools": [
-            ("acpype", "acpype -i ligand.pdb -c bcc -n 0", "Generate GAFF2 topology (AMBER)"),
-            ("acpype (charged)", "acpype -i ligand.pdb -c bcc -n -1", "Negatively charged ligand (net -1)"),
-            ("obabel (mol2→pdb)", "obabel ligand.mol2 -O ligand.pdb", "Convert mol2 to PDB"),
-            ("obabel (sdf→pdb)", "obabel ligand.sdf -O ligand.pdb --gen3D", "Convert SDF to PDB with 3D coords"),
+            ("acpype","acpype -i ligand.pdb -c bcc -n 0","GAFF2 topology"),
+            ("obabel","obabel ligand.mol2 -O ligand.pdb","Format conversion"),
+            ("vina (Python)","from vina import Vina; v=Vina(); v.set_receptor('rec.pdbqt')","Python Vina API"),
         ],
     }
 
-    found_any = False
-    for category, entries in CHEATSHEET.items():
-        if search:
-            filtered = [e for e in entries
-                        if search.lower() in e[0].lower()
-                        or search.lower() in e[1].lower()
-                        or search.lower() in e[2].lower()]
-            if not filtered:
-                continue
-            entries = filtered
-
-        found_any = True
-        with st.expander(category, expanded=bool(search)):
-            for cmd_name, cmd_text, description in entries:
-                col_name, col_code = st.columns([1, 3])
-                with col_name:
-                    st.markdown(f"**`{cmd_name}`**")
-                    st.caption(description)
-                with col_code:
-                    st.code(cmd_text, language="bash")
+    found = False
+    for cat, entries in SHEET.items():
+        filt = [e for e in entries if not search or any(search.lower() in x.lower() for x in e)] if search else entries
+        if not filt: continue
+        found = True
+        with st.expander(cat, expanded=bool(search)):
+            for name,cmd,desc in filt:
+                c1,c2 = st.columns([1,3])
+                with c1: st.markdown(f"**`{name}`**"); st.caption(desc)
+                with c2: st.code(cmd, language="bash")
                 st.markdown("---")
-
-    if search and not found_any:
-        st.info(f"No commands found matching '**{search}**'. Try a different search term.")
+    if search and not found:
+        st.info(f"No commands found for '{search}'.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR & ROUTING
+# MAIN ROUTING
 # ═══════════════════════════════════════════════════════════════════════════════
+
 PAGES = {
-    "🏠 Home": page_home,
-    "📚 MD Workflow Guide": page_workflow,
-    "📊 RMSD / RMSF Viewer": page_rmsd_rmsf,
-    "⚗️ MM-PBSA Analysis": page_mmpbsa,
-    "🔬 3D Structure Viewer": page_structure_viewer,
-    "🔗 H-Bond Analysis": page_hbond,
-    "📋 GROMACS Cheatsheet": page_cheatsheet,
+    "🏠 Home":                  page_home,
+    "🎯 Molecular Docking":     page_docking,
+    "📚 MD Workflow Guide":     page_workflow,
+    "📊 RMSD / RMSF Viewer":    page_rmsd_rmsf,
+    "⚗️ MM-PBSA Analysis":      page_mmpbsa,
+    "🔬 3D Structure Viewer":   page_structure_viewer,
+    "🔗 H-Bond Analysis":       page_hbond,
+    "📋 GROMACS Cheatsheet":    page_cheatsheet,
 }
 
 with st.sidebar:
-    st.markdown('<div class="sidebar-header">🧬 MD Sim Explorer</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-sub">Post-Docking Analysis Toolkit</div>', unsafe_allow_html=True)
+    st.markdown("## 🧬 MD Sim Explorer")
+    st.caption("Post-Docking Analysis Toolkit")
     st.markdown("---")
-    page_sel = st.radio("Navigate", list(PAGES.keys()), label_visibility="collapsed")
+    sel = st.radio("Navigate", list(PAGES.keys()), label_visibility="collapsed")
     st.markdown("---")
-    st.markdown("**Force Fields:** AMBER99SB-ILDN · GAFF2")
-    st.markdown("**MD Engine:** GROMACS 2024")
-    st.markdown("**Free Energy:** gmx_MMPBSA")
+    libs = check_docking_libs()
+    st.markdown("**Docking Status:**")
+    for k,label in [("vina","Vina"),("rdkit","RDKit"),("meeko","Meeko"),("obabel","OpenBabel")]:
+        icon = "🟢" if libs[k] else "🔴"
+        st.caption(f"{icon} {label}")
     st.markdown("---")
-    st.caption("Built with Streamlit · Deploy on Streamlit Cloud")
+    st.caption("GROMACS · AMBER · AutoDock Vina")
 
-PAGES[page_sel]()
+PAGES[sel]()
