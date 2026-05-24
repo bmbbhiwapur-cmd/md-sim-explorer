@@ -149,8 +149,10 @@ def prepare_receptor_pdbqt(pdb_path, out_path):
 
 def rdkit_mol_to_pdbqt(mol):
     """
-    RDKit mol → valid PDBQT with BRANCH/ENDBRANCH torsion records.
-    Pure Python — no meeko or openbabel required.
+    RDKit mol → PDBQT for AutoDock Vina.
+    All atoms placed in ROOT block, TORSDOF 0 (rigid docking).
+    Simple and 100% compatible — no BRANCH/ENDBRANCH complexity.
+    Vina still searches all orientations/positions of the rigid ligand.
     """
     import sys
     from rdkit import Chem
@@ -159,12 +161,12 @@ def rdkit_mol_to_pdbqt(mol):
 
     mol = Chem.AddHs(mol)
 
-    # Generate 3D conformer if missing
+    # Generate 3D conformer
     if mol.GetNumConformers() == 0:
         params = AllChem.ETKDGv3()
         params.randomSeed = 42
         if AllChem.EmbedMolecule(mol, params) == -1:
-            AllChem.EmbedMolecule(mol, randomSeed=42)   # fallback
+            AllChem.EmbedMolecule(mol, randomSeed=42)
     try:
         AllChem.MMFFOptimizeMolecule(mol, maxIters=2000)
     except Exception:
@@ -173,61 +175,24 @@ def rdkit_mol_to_pdbqt(mol):
     if mol.GetNumConformers() == 0:
         raise ValueError("RDKit could not generate 3D coordinates for this ligand.")
 
-    # AutoDock atom types
-    AD = {'C':'C','N':'NA','O':'OA','S':'SA','H':'HD',
-          'F':'F','Cl':'Cl','Br':'Br','I':'I','P':'P'}
+    AD = {'C':'C', 'N':'NA', 'O':'OA', 'S':'SA', 'H':'HD',
+          'F':'F', 'Cl':'Cl', 'Br':'Br', 'I':'I',  'P':'P'}
     conf = mol.GetConformer()
 
-    # Rotatable bonds: single, non-ring, both endpoints heavy atoms
-    rot_bonds = set()
-    for b in mol.GetBonds():
-        a1, a2 = b.GetBeginAtom(), b.GetEndAtom()
-        if (b.GetBondTypeAsDouble() == 1.0 and not b.IsInRing()
-                and a1.GetSymbol() != 'H' and a2.GetSymbol() != 'H'):
-            rot_bonds.add(frozenset([a1.GetIdx(), a2.GetIdx()]))
-
-    atom_num, atom_map, visited, lines = [0], {}, set(), []
-
-    def fmt(idx):
-        at  = mol.GetAtomWithIdx(idx)
-        p   = conf.GetAtomPosition(idx)
-        sym = at.GetSymbol()
-        atom_num[0] += 1
-        atom_map[idx] = atom_num[0]
-        n     = atom_num[0]
-        aname = f"{sym}{n}"[:4].ljust(4)
-        t     = AD.get(sym, 'C')
-        # Exact PDBQT HETATM column layout:
-        # 1-6 record, 7-11 serial, 12 space, 13-16 name, 17-30 resinfo,
-        # 31-38 x, 39-46 y, 47-54 z, 55-60 occ, 61-66 bfac,
-        # 67-76 charge (10.3f), 77 space, 78-79 AD type
-        return (f"HETATM{n:5d} {aname} LIG     1    "
-                f"{p.x:8.3f}{p.y:8.3f}{p.z:8.3f}  1.00  0.00"
-                f"{0.0:>10.3f} {t}")
-
-    def dfs(idx, parent):
-        visited.add(idx)
-        lines.append(fmt(idx))
-        for nb in mol.GetAtomWithIdx(idx).GetNeighbors():
-            nidx = nb.GetIdx()
-            if nidx in visited:
-                continue
-            if frozenset([idx, nidx]) in rot_bonds:
-                pnum = atom_map[idx]
-                bpos = len(lines)
-                lines.append("__BRANCH__")          # placeholder
-                dfs(nidx, idx)
-                lines[bpos] = f"BRANCH {pnum} {atom_map[nidx]}"
-                lines.append(f"ENDBRANCH {pnum} {atom_map[nidx]}")
-            else:
-                dfs(nidx, idx)
-
-    root = next((i for i in range(mol.GetNumAtoms())
-                 if mol.GetAtomWithIdx(i).GetSymbol() != 'H'), 0)
-    lines.append('ROOT')
-    dfs(root, -1)
+    lines = ['ROOT']
+    for i, atom in enumerate(mol.GetAtoms()):
+        p    = conf.GetAtomPosition(i)
+        sym  = atom.GetSymbol()
+        t    = AD.get(sym, 'C')
+        n    = i + 1
+        name = f"{sym}{n}"[:4].ljust(4)
+        lines.append(
+            f"HETATM{n:5d} {name} LIG     1    "
+            f"{p.x:8.3f}{p.y:8.3f}{p.z:8.3f}  1.00  0.00"
+            f"{0.0:>10.3f} {t}"
+        )
     lines.append('ENDROOT')
-    lines.append(f'TORSDOF {len(rot_bonds)}')
+    lines.append('TORSDOF 0')
     return '\n'.join(lines)
 
 
