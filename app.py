@@ -45,7 +45,8 @@ div[data-testid="stMetricValue"]{font-size:1.4rem!important;font-weight:700!impo
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def check_docking_libs():
-    libs = {'vina': False, 'rdkit': False, 'meeko': False, 'obabel': False}
+    # Only 3 packages needed — no openbabel required
+    libs = {'vina': False, 'rdkit': False, 'meeko': False}
     try:
         from vina import Vina; libs['vina'] = True
     except Exception: pass
@@ -54,9 +55,6 @@ def check_docking_libs():
     except Exception: pass
     try:
         import meeko; libs['meeko'] = True
-    except Exception: pass
-    try:
-        from openbabel import pybel; libs['obabel'] = True
     except Exception: pass
     libs['all'] = all(libs.values())
     libs['partial'] = any(libs.values())
@@ -101,60 +99,89 @@ def get_ligand_centroid(content, ext):
 
 
 def prepare_receptor_pdbqt(pdb_path, out_path):
-    """Convert protein PDB → PDBQT using OpenBabel"""
-    from openbabel import pybel
-    mol = next(pybel.readfile("pdb", pdb_path))
-    mol.write("pdbqt", out_path, overwrite=True)
-    return os.path.exists(out_path)
+    """
+    Pure Python PDB → PDBQT conversion — no openbabel needed.
+    Keeps ATOM records, removes waters, adds charge + atom-type columns.
+    Sufficient for AutoDock Vina rigid-receptor docking.
+    """
+    AD_TYPES = {
+        'C':'C',  'N':'N',  'O':'OA', 'S':'SA', 'H':'HD',
+        'P':'P',  'F':'F',  'CL':'Cl','BR':'Br','I':'I',
+        'FE':'Fe','ZN':'Zn','MG':'Mg','CA':'Ca','MN':'Mn',
+    }
+    out_lines = []
+    with open(pdb_path) as f:
+        for line in f:
+            rec = line[:6].strip()
+            if rec == 'ATOM':
+                if len(line) < 54:
+                    continue
+                resname = line[17:20].strip()
+                if resname in ('HOH', 'WAT', 'SOL'):
+                    continue
+                # Determine element
+                element = line[76:78].strip().upper() if len(line) > 76 else ''
+                if not element:
+                    aname = line[12:16].strip()
+                    raw = ''.join(c for c in aname if c.isalpha())
+                    element = raw[:2] if raw[:2] in AD_TYPES else raw[:1]
+                ad_type = AD_TYPES.get(element, element[:1] if element else 'C')
+                padded = line.rstrip()[:66].ljust(66)
+                out_lines.append(f"{padded}  0.000 {ad_type}\n")
+            elif rec in ('TER', 'END', 'REMARK'):
+                out_lines.append(line if line.endswith('\n') else line + '\n')
+    with open(out_path, 'w') as f:
+        f.writelines(out_lines)
+    return os.path.exists(out_path) and os.path.getsize(out_path) > 0
 
 
 def prepare_ligand_pdbqt(lig_path, out_path, ext):
-    """Convert ligand → PDBQT, try meeko+rdkit first, fallback to openbabel"""
-    # --- Try meeko + RDKit (best for SDF/PDB) ---
-    if ext in ('sdf', 'mol', 'pdb'):
-        try:
-            from rdkit import Chem
-            from rdkit.Chem import AllChem
-            import meeko
-            from meeko import MoleculePreparation
+    """
+    Convert ligand → PDBQT using rdkit + meeko only (no openbabel).
+    Supports SDF, MOL, MOL2, PDB.
+    """
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    from meeko import MoleculePreparation
 
-            if ext in ('sdf', 'mol'):
-                mol = Chem.MolFromMolFile(lig_path, removeHs=False)
-            else:
-                mol = Chem.MolFromPDBFile(lig_path, removeHs=False)
+    mol = None
+    if ext in ('sdf', 'mol'):
+        mol = Chem.MolFromMolFile(lig_path, removeHs=False)
+        if mol is None:
+            mol = Chem.MolFromMolFile(lig_path)
+    elif ext == 'mol2':
+        mol = Chem.MolFromMol2File(lig_path, removeHs=False)
+        if mol is None:
+            mol = Chem.MolFromMol2File(lig_path)
+    elif ext == 'pdb':
+        mol = Chem.MolFromPDBFile(lig_path, removeHs=False)
+        if mol is None:
+            mol = Chem.MolFromPDBFile(lig_path)
 
-            if mol is None:
-                raise ValueError("RDKit could not read molecule")
+    if mol is None:
+        return False
 
-            mol = Chem.AddHs(mol)
-            if mol.GetNumConformers() == 0:
-                AllChem.EmbedMolecule(mol, randomSeed=42)
-            AllChem.MMFFOptimizeMolecule(mol)
+    mol = Chem.AddHs(mol)
+    if mol.GetNumConformers() == 0:
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+    AllChem.MMFFOptimizeMolecule(mol)
 
-            prep = MoleculePreparation()
-            # Support both old and new meeko API
-            try:
-                from meeko import PDBQTWriterLegacy
-                mol_setups = prep.prepare(mol)
-                pdbqt_str, ok, err = PDBQTWriterLegacy.write_string(mol_setups[0])
-                if ok:
-                    with open(out_path, 'w') as f: f.write(pdbqt_str)
-                    return True
-            except Exception:
-                prep.prepare(mol)
-                prep.write_pdbqt_file(out_path)
-                return os.path.exists(out_path)
-        except Exception:
-            pass  # fall through to openbabel
-
-    # --- Fallback: OpenBabel ---
+    prep = MoleculePreparation()
+    # Try new meeko API (>=0.5)
     try:
-        from openbabel import pybel
-        mol = next(pybel.readfile(ext if ext != 'mol' else 'sdf', lig_path))
-        mol.addh()
-        if not mol.OBMol.Has3D():
-            mol.make3D()
-        mol.write("pdbqt", out_path, overwrite=True)
+        from meeko import PDBQTWriterLegacy
+        mol_setups = prep.prepare(mol)
+        pdbqt_str, ok, err = PDBQTWriterLegacy.write_string(mol_setups[0])
+        if ok:
+            with open(out_path, 'w') as f:
+                f.write(pdbqt_str)
+            return True
+    except Exception:
+        pass
+    # Fallback: older meeko API (<0.5)
+    try:
+        prep.prepare(mol)
+        prep.write_pdbqt_file(out_path)
         return os.path.exists(out_path)
     except Exception:
         pass
@@ -244,16 +271,15 @@ def page_docking():
     with st.expander("📦 Required libraries for real docking"):
         col1, col2 = st.columns(2)
         statuses = [
-            ("vina", "AutoDock Vina engine"),
-            ("rdkit", "Molecule reading (SDF/PDB)"),
+            ("vina",  "AutoDock Vina engine"),
+            ("rdkit", "Molecule reading (SDF/MOL2/PDB)"),
             ("meeko", "Ligand PDBQT preparation"),
-            ("obabel", "Format conversion (MOL2 support)"),
         ]
         for i,(k,desc) in enumerate(statuses):
             col = col1 if i % 2 == 0 else col2
             icon = "✅" if libs[k] else "❌"
             col.markdown(f"{icon} **{k}** — {desc}")
-        st.code("# Add to requirements.txt:\nvina\nmeeko\nrdkit\nopenbabel-wheel", language="bash")
+        st.code("# requirements.txt (Streamlit Cloud compatible):\nstreamlit\npandas\nnumpy\nplotly\nvina\nmeeko\nrdkit", language="bash")
 
     st.markdown("---")
 
@@ -1169,7 +1195,7 @@ with st.sidebar:
     st.markdown("---")
     libs = check_docking_libs()
     st.markdown("**Docking Status:**")
-    for k,label in [("vina","Vina"),("rdkit","RDKit"),("meeko","Meeko"),("obabel","OpenBabel")]:
+    for k, label in [("vina","Vina Engine"),("rdkit","RDKit"),("meeko","Meeko")]:
         icon = "🟢" if libs[k] else "🔴"
         st.caption(f"{icon} {label}")
     st.markdown("---")
