@@ -217,8 +217,8 @@ def rdkit_mol_to_pdbqt(mol):
                 bpos = len(lines)
                 lines.append("__BRANCH__")          # placeholder
                 dfs(nidx, idx)
-                lines[bpos] = f"BRANCH {pnum:3d} {atom_map[nidx]:3d}"
-                lines.append(f"ENDBRANCH {pnum:3d} {atom_map[nidx]:3d}")
+                lines[bpos] = f"BRANCH {pnum} {atom_map[nidx]}"
+                lines.append(f"ENDBRANCH {pnum} {atom_map[nidx]}")
             else:
                 dfs(nidx, idx)
 
@@ -804,7 +804,8 @@ def _run_prep_mode(prot_content, lig_content, lig_ext, center, box_size, exhaust
     """Preparation mode — prepare files and show commands"""
     st.markdown("---")
     st.markdown("## 📦 Preparation Mode")
-    st.info("Real docking libraries not available on this server. Here are your **prepared files and ready-to-run commands** for your local machine.")
+    st.info("⚠️ **Docking ran into an error** — showing preparation mode as fallback. "
+            "The files below are ready; scroll up to see the exact error and fix it.")
 
     cx, cy, cz = center
     sx, sy, sz = box_size
