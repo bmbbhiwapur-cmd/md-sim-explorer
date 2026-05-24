@@ -96,58 +96,89 @@ def get_ligand_centroid(content, ext):
 
 def prepare_receptor_pdbqt(pdb_path, out_path):
     """
-    Pure Python PDB → PDBQT conversion — no openbabel needed.
-    Keeps ATOM records, removes waters, adds charge + atom-type columns.
-    Sufficient for AutoDock Vina rigid-receptor docking.
+    Pure Python PDB → PDBQT for AutoDock Vina.
+    Key rules:
+      - Remove ALL hydrogen atoms (standard Vina receptor prep)
+      - Remove water molecules
+      - Add AutoDock atom type + zero charge in correct PDBQT columns
     """
-    AD_TYPES = {
-        'C':'C',  'N':'N',  'O':'OA', 'S':'SA', 'H':'HD',
+    AD = {
+        'C':'C',  'N':'N',  'O':'OA', 'S':'SA',
         'P':'P',  'F':'F',  'CL':'Cl','BR':'Br','I':'I',
         'FE':'Fe','ZN':'Zn','MG':'Mg','CA':'Ca','MN':'Mn',
+        'NA':'Na','K':'K',  'CU':'Cu',
     }
     out_lines = []
     with open(pdb_path) as f:
         for line in f:
             rec = line[:6].strip()
-            if rec == 'ATOM':
-                if len(line) < 54:
-                    continue
-                resname = line[17:20].strip()
-                if resname in ('HOH', 'WAT', 'SOL'):
-                    continue
-                # Determine element
-                element = line[76:78].strip().upper() if len(line) > 76 else ''
-                if not element:
-                    aname = line[12:16].strip()
-                    raw = ''.join(c for c in aname if c.isalpha())
-                    element = raw[:2] if raw[:2] in AD_TYPES else raw[:1]
-                ad_type = AD_TYPES.get(element, element[:1] if element else 'C')
-                padded = line.rstrip()[:66].ljust(66)
-                out_lines.append(f"{padded}  0.000 {ad_type}\n")
-            elif rec in ('TER', 'END', 'REMARK'):
-                out_lines.append(line if line.endswith('\n') else line + '\n')
+            if rec not in ('ATOM', 'HETATM'):
+                if rec == 'TER':
+                    out_lines.append('TER\n')
+                continue
+            if len(line) < 54:
+                continue
+
+            resname = line[17:20].strip()
+            if resname in ('HOH','WAT','SOL'):
+                continue
+
+            # Determine element symbol
+            element = line[76:78].strip().upper() if len(line) > 76 else ''
+            if not element:
+                aname = line[12:16].strip().lstrip('0123456789')
+                raw   = ''.join(c for c in aname if c.isalpha())
+                element = raw[:2].upper() if raw[:2].upper() in AD else raw[:1].upper()
+
+            # *** Skip all hydrogen atoms — Vina doesn't want them on receptor ***
+            if element in ('H', 'D'):
+                continue
+
+            ad_type = AD.get(element, 'C')
+
+            # PDBQT format: cols 1-66 (standard PDB) + cols 67-76 (charge 10.3f) + col 77+ (type)
+            pdb66 = line.rstrip('\n')[:66].ljust(66)
+            out_lines.append(f"{pdb66}{0.0:>10.3f} {ad_type}\n")
+
     with open(out_path, 'w') as f:
         f.writelines(out_lines)
-    return os.path.exists(out_path) and os.path.getsize(out_path) > 0
+
+    n_heavy = sum(1 for l in out_lines if l.startswith(('ATOM','HETATM')))
+    return n_heavy > 0
 
 
 def rdkit_mol_to_pdbqt(mol):
     """
-    RDKit mol → PDBQT with BRANCH/ENDBRANCH torsion records.
+    RDKit mol → valid PDBQT with BRANCH/ENDBRANCH torsion records.
     Pure Python — no meeko or openbabel required.
     """
+    import sys
     from rdkit import Chem
     from rdkit.Chem import AllChem
+    sys.setrecursionlimit(10000)
 
     mol = Chem.AddHs(mol)
-    if mol.GetNumConformers() == 0:
-        AllChem.EmbedMolecule(mol, randomSeed=42)
-    AllChem.MMFFOptimizeMolecule(mol)
 
+    # Generate 3D conformer if missing
+    if mol.GetNumConformers() == 0:
+        params = AllChem.ETKDGv3()
+        params.randomSeed = 42
+        if AllChem.EmbedMolecule(mol, params) == -1:
+            AllChem.EmbedMolecule(mol, randomSeed=42)   # fallback
+    try:
+        AllChem.MMFFOptimizeMolecule(mol, maxIters=2000)
+    except Exception:
+        pass
+
+    if mol.GetNumConformers() == 0:
+        raise ValueError("RDKit could not generate 3D coordinates for this ligand.")
+
+    # AutoDock atom types
     AD = {'C':'C','N':'NA','O':'OA','S':'SA','H':'HD',
           'F':'F','Cl':'Cl','Br':'Br','I':'I','P':'P'}
     conf = mol.GetConformer()
 
+    # Rotatable bonds: single, non-ring, both endpoints heavy atoms
     rot_bonds = set()
     for b in mol.GetBonds():
         a1, a2 = b.GetBeginAtom(), b.GetEndAtom()
@@ -158,15 +189,21 @@ def rdkit_mol_to_pdbqt(mol):
     atom_num, atom_map, visited, lines = [0], {}, set(), []
 
     def fmt(idx):
-        atom = mol.GetAtomWithIdx(idx)
-        p = conf.GetAtomPosition(idx)
-        sym = atom.GetSymbol()
+        at  = mol.GetAtomWithIdx(idx)
+        p   = conf.GetAtomPosition(idx)
+        sym = at.GetSymbol()
         atom_num[0] += 1
         atom_map[idx] = atom_num[0]
-        name = f"{sym}{atom_num[0]}"[:4].ljust(4)
-        return (f"HETATM{atom_num[0]:5d} {name} LIG     1    "
-                f"{p.x:8.3f}{p.y:8.3f}{p.z:8.3f}  1.00  0.00    "
-                f"  0.000 {AD.get(sym, sym[:1])}")
+        n     = atom_num[0]
+        aname = f"{sym}{n}"[:4].ljust(4)
+        t     = AD.get(sym, 'C')
+        # Exact PDBQT HETATM column layout:
+        # 1-6 record, 7-11 serial, 12 space, 13-16 name, 17-30 resinfo,
+        # 31-38 x, 39-46 y, 47-54 z, 55-60 occ, 61-66 bfac,
+        # 67-76 charge (10.3f), 77 space, 78-79 AD type
+        return (f"HETATM{n:5d} {aname} LIG     1    "
+                f"{p.x:8.3f}{p.y:8.3f}{p.z:8.3f}  1.00  0.00"
+                f"{0.0:>10.3f} {t}")
 
     def dfs(idx, parent):
         visited.add(idx)
@@ -178,15 +215,15 @@ def rdkit_mol_to_pdbqt(mol):
             if frozenset([idx, nidx]) in rot_bonds:
                 pnum = atom_map[idx]
                 bpos = len(lines)
-                lines.append("__BRANCH__")
+                lines.append("__BRANCH__")          # placeholder
                 dfs(nidx, idx)
                 lines[bpos] = f"BRANCH {pnum:3d} {atom_map[nidx]:3d}"
                 lines.append(f"ENDBRANCH {pnum:3d} {atom_map[nidx]:3d}")
             else:
                 dfs(nidx, idx)
 
-    root = next(i for i in range(mol.GetNumAtoms())
-                if mol.GetAtomWithIdx(i).GetSymbol() != 'H')
+    root = next((i for i in range(mol.GetNumAtoms())
+                 if mol.GetAtomWithIdx(i).GetSymbol() != 'H'), 0)
     lines.append('ROOT')
     dfs(root, -1)
     lines.append('ENDROOT')
@@ -199,17 +236,18 @@ def prepare_ligand_pdbqt(lig_path, out_path, ext):
     from rdkit import Chem
 
     mol = None
-    readers = {
-        'sdf': lambda p: Chem.MolFromMolFile(p, removeHs=False),
-        'mol': lambda p: Chem.MolFromMolFile(p, removeHs=False),
-        'mol2': lambda p: Chem.MolFromMol2File(p, removeHs=False),
-        'pdb': lambda p: Chem.MolFromPDBFile(p, removeHs=False),
-    }
-    reader = readers.get(ext)
-    if reader:
-        mol = reader(lig_path)
+    if ext in ('sdf', 'mol'):
+        mol = Chem.MolFromMolFile(lig_path, removeHs=False)
         if mol is None:
-            mol = readers.get(ext, readers['sdf'])(lig_path)  # retry without removeHs flag issue
+            mol = Chem.MolFromMolFile(lig_path)
+    elif ext == 'mol2':
+        mol = Chem.MolFromMol2File(lig_path, removeHs=False)
+        if mol is None:
+            mol = Chem.MolFromMol2File(lig_path)
+    elif ext == 'pdb':
+        mol = Chem.MolFromPDBFile(lig_path, removeHs=False)
+        if mol is None:
+            mol = Chem.MolFromPDBFile(lig_path)
 
     if mol is None:
         return False
@@ -560,46 +598,77 @@ def _run_real_docking(prot_file, lig_file, lig_ext, center, box_size, exhaustive
             lig_file.seek(0)
             with open(lig_in,  'wb') as f: f.write(lig_file.read())
 
-            # Step 0: Download Vina binary (cached after first use)
-            progress.info("⬇️ **Step 1/5** — Downloading AutoDock Vina binary (~5 MB, once per session)...")
+            # ── Validate box vs receptor bounding box ─────────────────────────
+            prot_coords = []
+            for line in prot_content.split('\n'):
+                if line.startswith('ATOM') and len(line) >= 54:
+                    try:
+                        prot_coords.append([float(line[30:38]),
+                                            float(line[38:46]),
+                                            float(line[46:54])])
+                    except Exception:
+                        pass
+            if prot_coords:
+                pc = np.array(prot_coords)
+                pmin, pmax = pc.min(axis=0), pc.max(axis=0)
+                cx, cy, cz = center
+                in_box = (pmin[0]-10 < cx < pmax[0]+10 and
+                          pmin[1]-10 < cy < pmax[1]+10 and
+                          pmin[2]-10 < cz < pmax[2]+10)
+                if not in_box:
+                    progress.empty()
+                    st.error(
+                        f"❌ **Box center ({cx:.1f}, {cy:.1f}, {cz:.1f}) is outside the protein!**\n\n"
+                        f"Protein bounding box: "
+                        f"X {pmin[0]:.1f}→{pmax[0]:.1f}, "
+                        f"Y {pmin[1]:.1f}→{pmax[1]:.1f}, "
+                        f"Z {pmin[2]:.1f}→{pmax[2]:.1f}\n\n"
+                        "💡 **Fix:** Upload your co-crystallized ligand so the app auto-detects the box center. "
+                        "Or use the midpoint of the protein bounding box above."
+                    )
+                    auto_cx = float((pmin[0]+pmax[0])/2)
+                    auto_cy = float((pmin[1]+pmax[1])/2)
+                    auto_cz = float((pmin[2]+pmax[2])/2)
+                    st.info(f"Suggested center: X={auto_cx:.2f}, Y={auto_cy:.2f}, Z={auto_cz:.2f}")
+                    return
+
+            # ── Step 1: Download Vina binary ───────────────────────────────────
+            progress.info("⬇️ **Step 1/5** — Fetching AutoDock Vina binary (cached after first use)...")
             vina_bin, dl_err = get_vina_binary()
             if not vina_bin:
                 progress.error(f"❌ Could not download Vina binary: {dl_err}")
                 return
 
-            # Step 1: Prepare receptor
-            progress.info("⚙️ **Step 2/5** — Preparing receptor (PDB → PDBQT)...")
+            # ── Step 2: Prepare receptor ───────────────────────────────────────
+            progress.info("⚙️ **Step 2/5** — Preparing receptor (removing H + waters → PDBQT)...")
             if not prepare_receptor_pdbqt(prot_pdb, prot_pdbqt):
-                progress.error("❌ Receptor preparation failed. Check your PDB file.")
+                progress.error("❌ Receptor has no heavy atoms after preparation. Check your PDB file.")
                 return
+            rec_n = sum(1 for l in open(prot_pdbqt) if l.startswith(('ATOM','HETATM')))
 
-            # Step 2: Prepare ligand
+            # ── Step 3: Prepare ligand ─────────────────────────────────────────
             progress.info("⚙️ **Step 3/5** — Preparing ligand (3D conformer + PDBQT)...")
             if not prepare_ligand_pdbqt(lig_in, lig_pdbqt, lig_ext):
-                progress.error("❌ Ligand preparation failed. Ensure your file has valid 3D coordinates.")
+                progress.error("❌ Ligand preparation failed. Try SDF format with valid 3D coordinates.")
                 return
+            lig_n = sum(1 for l in open(lig_pdbqt) if l.startswith('HETATM'))
 
-            # Step 3: Run Vina
-            progress.warning(f"🚀 **Step 4/5** — Running AutoDock Vina (exhaustiveness={exhaustiveness})… "
-                             f"estimated {exhaustiveness + 1}–{exhaustiveness * 2} min. Please wait.")
+            # ── Step 4: Run Vina ───────────────────────────────────────────────
+            progress.warning(
+                f"🚀 **Step 4/5** — Running AutoDock Vina "
+                f"(receptor {rec_n} atoms, ligand {lig_n} atoms, "
+                f"exhaustiveness={exhaustiveness})… Please wait ~{exhaustiveness+1} min."
+            )
             energies, docked_path = run_vina_docking(
                 prot_pdbqt, lig_pdbqt, center, box_size, exhaustiveness, n_poses, seed
             )
 
-            # Step 4: Show results
+            # ── Step 5: Results ────────────────────────────────────────────────
             progress.success("✅ **Step 5/5** — Docking complete!")
-
             with open(docked_path) as f: docked_content = f.read()
             with open(prot_pdbqt)  as f: receptor_content = f.read()
             with open(lig_pdbqt)   as f: ligand_prep_content = f.read()
-
             progress.empty()
-            _display_docking_results(energies, docked_content, prot_content,
-                                     receptor_content, ligand_prep_content, center, box_size)
-
-            progress.empty()
-            log.empty()
-
             _display_docking_results(energies, docked_content, prot_content,
                                      receptor_content, ligand_prep_content, center, box_size)
 
