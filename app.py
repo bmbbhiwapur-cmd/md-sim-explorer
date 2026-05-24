@@ -400,14 +400,16 @@ get_position   # shows X Y Z of current view center
 
 
 def _show_3dmol(pdb_content, style="cartoon", color="spectrum", height=350, label="mol"):
-    escaped = pdb_content.replace("`","\\`").replace("\\","\\\\")
-    styles = {
-        "cartoon": f"{{cartoon:{{color:'{color}'}}}}",
-        "stick": "{stick:{}}",
-        "sphere": "{sphere:{radius:0.4}}",
-        "element": "{stick:{colorscheme:'elementColors'}}",
-    }
-    s = styles.get(style, styles["stick"])
+    escaped = pdb_content.replace("`", "\\`").replace("\\", "\\\\")
+    # Build JS style object as a plain string — no % operator (conflicts with CSS %)
+    if style == "cartoon":
+        style_js = f"{{cartoon:{{color:'{color}'}}}}"
+    elif style == "stick":
+        style_js = "{stick:{}}"
+    elif style == "sphere":
+        style_js = "{sphere:{radius:0.4}}"
+    else:
+        style_js = "{stick:{colorscheme:'elementColors'}}"
     html = f"""<!DOCTYPE html><html><head>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
 <script src="https://3dmol.org/build/3Dmol-min.js"></script>
@@ -416,10 +418,10 @@ def _show_3dmol(pdb_content, style="cartoon", color="spectrum", height=350, labe
 <script>
 var v=$3Dmol.createViewer("v",{{backgroundColor:"0x0d1b2a"}});
 v.addModel(`{escaped}`,"pdb");
-v.setStyle({{}},%s);
+v.setStyle({{}},{style_js});
 v.zoomTo();v.render();
-</script></body></html>""" % s
-    components.html(html, height=height+10, scrolling=False)
+</script></body></html>"""
+    components.html(html, height=height + 10, scrolling=False)
 
 
 def _sdf_to_viewer_html(content, ext):
